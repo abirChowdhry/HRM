@@ -1,11 +1,14 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
+using HRM.Models;
+
 namespace HRM.Models.Salary
 {
-    public class SalaryAssignRow
+    public class SalaryAssignRow : IUserOwned
     {
         [Key]
         public long IntSalaryAssignRowId { get; set; }
+        public long IntUserId { get; set; }
         public long IntSalaryAssignHeaderId { get; set; }
         public long IntEmployeeId { get; set; }
         public long IntPayrollElementId { get; set; }

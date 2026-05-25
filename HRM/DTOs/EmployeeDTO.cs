@@ -28,7 +28,6 @@ namespace HRM.DTOs
         public long IntDepartmentId { get; set; }
         public long IntDesignationId { get; set; }
         public string? StrGender { get; set; }
-        public string? StrReligion { get; set; }
         public string? StrMaritalStatus { get; set; }
         public string? StrBloodGroup { get; set; }
         public DateTime? DteDateOfBirth { get; set; }
@@ -58,14 +57,15 @@ namespace HRM.DTOs
 
     public class EmployeeLandingVM
     {
+        public long IntEmployeeBasicInfoId { get; set; }
         public string StrEmployeeCode { get; set; }
         public string StrEmployeeName { get; set; }
+        public long IntBusinessUnitId { get; set; }
         public long IntDepartmentId { get; set; }
         public string StrDepartmentName { get; set; }
         public long IntDesignationId { get; set; }
         public string StrDesignationName { get; set; }
         public string? StrGender { get; set; }
-        public string? StrReligion { get; set; }
         public string? StrMaritalStatus { get; set; }
         public string? StrBloodGroup { get; set; }
         public string? DteDateOfBirth { get; set; }

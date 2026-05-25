@@ -1,11 +1,14 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
+using HRM.Models;
+
 namespace HRM.Models.Salary
 {
-    public class SalaryAdditionNDeduction
+    public class SalaryAdditionNDeduction : IUserOwned
     {
         [Key]
         public long IntSalaryAdditionAndDeductionId { get; set; }
+        public long IntUserId { get; set; }
         public long IntBusinessUnitId { get; set; }
         public long IntEmployeeId { get; set; }
         public long? IntYear { get; set; }

@@ -2,10 +2,11 @@
 
 namespace HRM.Models
 {
-    public class BusinessUnit
+    public class BusinessUnit : IUserOwned
     {
         [Key]
         public long IntBusinessUnitId { get; set; }
+        public long IntUserId { get; set; }
         [Required]
         public string StrBusinessUnitName { get; set; }
     }

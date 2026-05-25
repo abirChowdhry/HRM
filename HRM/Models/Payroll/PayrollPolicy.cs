@@ -1,11 +1,14 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
+using HRM.Models;
+
 namespace HRM.Models.Payroll
 {
-    public class PayrollPolicy
+    public class PayrollPolicy : IUserOwned
     {
         [Key]
         public long IntPayrollPolicyId { get; set; }
+        public long IntUserId { get; set; }
         public long IntBusinessUnitId { get; set; }
         public string StrPayrollPolicyName { get; set; }
         public bool? IsSalaryDivideByActualMonthDays { get; set; }

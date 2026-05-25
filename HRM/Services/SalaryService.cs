@@ -364,15 +364,14 @@ namespace HRM.Services
                 var exstBonus = await _context.bonusSetups.Where(x => exstBonusGenerate.Contains(x.IntBonusSetypId)).ToListAsync();
                 var bonusDeptList = exstBonus.Select(x => x.IntDepartmentId).ToList();
                 var bonusempTypeList = exstBonus.Select(x => x.IntEmployementTypeId).ToList();
-                var bonusreligionList = exstBonus.Select(x => x.StrReligion).ToList();
 
-                var eligibleEmps = await _context.empBasicInfos.Where(x => bonusDeptList.Contains(x.IntDepartmentId) || bonusempTypeList.Contains(x.IntEmploymentTypeId) || bonusreligionList.Contains(x.StrReligion)).ToListAsync();
+                var eligibleEmps = await _context.empBasicInfos.Where(x => bonusDeptList.Contains(x.IntDepartmentId) || bonusempTypeList.Contains(x.IntEmploymentTypeId)).ToListAsync();
 
 
                 List<TotalBonus> totalBonus = new List<TotalBonus>();
                 foreach (var emp in eligibleEmps)
                 {
-                    var bonusSetup = exstBonus.FirstOrDefault(b => b.IntDepartmentId == emp.IntDepartmentId || b.StrReligion == emp.StrReligion && b.IntEmployementTypeId == emp.IntEmploymentTypeId);
+                    var bonusSetup = exstBonus.FirstOrDefault(b => b.IntDepartmentId == emp.IntDepartmentId || b.IntEmployementTypeId == emp.IntEmploymentTypeId);
                     decimal percentage = bonusSetup != null ? bonusSetup.NumPercentage : 0;
 
                     var bonusAmount = _context.salaryAssignHeaders

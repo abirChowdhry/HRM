@@ -101,9 +101,6 @@ namespace HRM.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("StrReligion")
-                        .HasColumnType("nvarchar(max)");
-
                     b.HasKey("IntBonusSetypId");
 
                     b.ToTable("bonusSetups");
@@ -240,9 +237,6 @@ namespace HRM.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("StrMaritalStatus")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("StrReligion")
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("IntEmployeeBasicInfoId");

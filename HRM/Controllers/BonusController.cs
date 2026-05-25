@@ -1,6 +1,7 @@
 ﻿using HRM.DTOs;
 using HRM.Interfaces;
 using HRM.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,6 +9,7 @@ namespace HRM.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
+    [Authorize]
     public class BonusController : ControllerBase
     {
         IBonusService _bonusService;

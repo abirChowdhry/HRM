@@ -24,12 +24,13 @@ namespace HRM.Services
             try
             {
                 var data = await _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == employeeCreateVM.IntEmployeeBasicInfoId).FirstOrDefaultAsync();
+                var codeExists = await _context.empBasicInfos.AnyAsync(x => x.StrEmployeeCode == employeeCreateVM.StrEmployeeCode);
                 var businessUnit = await _context.businessUnits.Where(x => x.IntBusinessUnitId == employeeCreateVM.IntBusinessUnitId).FirstOrDefaultAsync();
                 var dept = await _context.departments.Where(x => x.IntDepartmentId == employeeCreateVM.IntDepartmentId).FirstOrDefaultAsync();
                 var desig = await _context.designations.Where(x => x.IntDesignationId == employeeCreateVM.IntDesignationId).FirstOrDefaultAsync();
                 var empType = await _context.employementTypes.Where(x => x.IntEmployementId == employeeCreateVM.IntEmploymentTypeId).FirstOrDefaultAsync();
 
-                if (data == null && businessUnit != null && dept != null && desig != null && empType != null)
+                if (data == null && codeExists == false && businessUnit != null && dept != null && desig != null && empType != null)
                 {
                     EmpBasicInfo empBasicInfo = new EmpBasicInfo
                     {
@@ -38,7 +39,6 @@ namespace HRM.Services
                         IntDepartmentId = employeeCreateVM.IntDepartmentId,
                         IntDesignationId = employeeCreateVM.IntDesignationId,
                         StrGender = employeeCreateVM.StrGender,
-                        StrReligion = employeeCreateVM.StrReligion,
                         StrMaritalStatus = employeeCreateVM.StrMaritalStatus,
                         StrBloodGroup = employeeCreateVM.StrBloodGroup,
                         DteDateOfBirth = employeeCreateVM.DteDateOfBirth,
@@ -93,7 +93,6 @@ namespace HRM.Services
                         data.IntDepartmentId = employeeCreateVM.IntDepartmentId;
                         data.IntDesignationId = employeeCreateVM.IntDesignationId;
                         data.StrGender = employeeCreateVM.StrGender;
-                        data.StrReligion = employeeCreateVM.StrReligion;
                         data.StrMaritalStatus = employeeCreateVM.StrMaritalStatus;
                         data.StrBloodGroup = employeeCreateVM.StrBloodGroup;
                         data.DteDateOfBirth = employeeCreateVM.DteDateOfBirth;
@@ -175,17 +174,18 @@ namespace HRM.Services
                                                                  && (employeeLandingFilter.EmployementTypeList != null && employeeLandingFilter.EmployementTypeList.Count > 0 ? employeeLandingFilter.EmployementTypeList.Contains((long)emp.IntEmploymentTypeId) : true))
                                                                  select new EmployeeLandingVM
                                                                  {
+                                                                     IntEmployeeBasicInfoId = emp.IntEmployeeBasicInfoId,
                                                                      StrEmployeeCode = emp.StrEmployeeCode,
                                                                      StrEmployeeName = emp.StrEmployeeName,
+                                                                     IntBusinessUnitId = emp.IntBusinessUnitId,
                                                                      IntDepartmentId = emp.IntDepartmentId,
                                                                      StrDepartmentName = dept.StrDepartmentName,
                                                                      IntDesignationId = emp.IntDesignationId,
                                                                      StrDesignationName = desig.StrDesignationName,
                                                                      StrGender = emp.StrGender ?? "",
-                                                                     StrReligion = emp.StrReligion ?? "",
                                                                      StrMaritalStatus = emp.StrMaritalStatus ?? "",
                                                                      StrBloodGroup = emp.StrBloodGroup ?? "",
-                                                                     DteDateOfBirth = emp.DteDateOfBirth.Value.ToString("dd MMM yyyy"),
+                                                                     DteDateOfBirth = emp.DteDateOfBirth.HasValue ? emp.DteDateOfBirth.Value.ToString("dd MMM yyyy") : "",
                                                                      DteJoiningDate = emp.DteJoiningDate,
                                                                      DteConfirmationDate = emp.DteConfirmationDate,
                                                                      DteLastWorkingDate = emp.DteLastWorkingDate,
@@ -193,7 +193,7 @@ namespace HRM.Services
                                                                      StrBusinessUnitName = business.StrBusinessUnitName,
                                                                      IntEmployementTyperId = emp.IntEmploymentTypeId,
                                                                      StrEmploymentTypeName = type.StrEmployementName,
-                                                                 }).OrderBy(x => x.StrEmployeeCode).AsNoTracking().AsQueryable();
+                                                                 }).OrderBy(x => x.IntEmployeeBasicInfoId).AsNoTracking().AsQueryable();
 
                 EmployeeLandingPagination retObj = new();
 
@@ -258,17 +258,20 @@ namespace HRM.Services
                                                                   from type in t2.DefaultIfEmpty()
 
                                                                   where emp.IntEmployeeBasicInfoId == employeeId
-                                                                  select new EmployeeLandingVM
+                                                                 select new EmployeeLandingVM
                                                                   {
+                                                                      IntEmployeeBasicInfoId = emp.IntEmployeeBasicInfoId,
                                                                       StrEmployeeCode = emp.StrEmployeeCode,
                                                                       StrEmployeeName = emp.StrEmployeeName,
+                                                                      IntBusinessUnitId = emp.IntBusinessUnitId,
+                                                                      IntDepartmentId = emp.IntDepartmentId,
+                                                                      IntDesignationId = emp.IntDesignationId,
                                                                       StrDepartmentName = dept.StrDepartmentName,
                                                                       StrDesignationName = desig.StrDesignationName,
                                                                       StrGender = emp.StrGender ?? "",
-                                                                      StrReligion = emp.StrReligion ?? "",
                                                                       StrMaritalStatus = emp.StrMaritalStatus ?? "",
                                                                       StrBloodGroup = emp.StrBloodGroup ?? "",
-                                                                      DteDateOfBirth = emp.DteDateOfBirth.Value.ToString("dd MMM yyyy"),
+                                                                      DteDateOfBirth = emp.DteDateOfBirth.HasValue ? emp.DteDateOfBirth.Value.ToString("dd MMM yyyy") : "",
                                                                       DteJoiningDate = emp.DteJoiningDate,
                                                                       DteConfirmationDate = emp.DteConfirmationDate,
                                                                       DteLastWorkingDate = emp.DteLastWorkingDate,
@@ -294,27 +297,20 @@ namespace HRM.Services
         {
             try
             {
-                bool dept = true;
-                bool desig = true;
-
                 var empExst = await _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == transferNPromotionCreateVM.IntEmployeeId && x.IntBusinessUnitId == transferNPromotionCreateVM.IntBusinessUnitId).FirstOrDefaultAsync();
                 if (empExst == null) { return false; }
-
 
                 var businessUnit = await _context.businessUnits.Where(x => x.IntBusinessUnitId == transferNPromotionCreateVM.IntBusinessUnitId).FirstOrDefaultAsync();
 
                 var oldDepartment = await _context.departments.Where(x => x.IntDepartmentId == transferNPromotionCreateVM.IntOldDepartmentId).FirstOrDefaultAsync();
                 var newDepartment = await _context.departments.Where(x => x.IntDepartmentId == transferNPromotionCreateVM.IntNewDepartmenId).FirstOrDefaultAsync();
-                if (oldDepartment != null && newDepartment !=null) { dept = false; }
+                bool isValidTransfer = oldDepartment != null && newDepartment != null;
                 
                 var oldDesignation = await _context.designations.Where(x => x.IntDesignationId == transferNPromotionCreateVM.IntOldDesignationId).FirstOrDefaultAsync();
                 var newDesignation = await _context.designations.Where(x => x.IntDesignationId == transferNPromotionCreateVM.IntNewDesignationId).FirstOrDefaultAsync();
-                if (oldDesignation != null && newDesignation != null) { dept = false; }
+                bool isValidPromotion = oldDesignation != null && newDesignation != null;
 
-
-
-
-                if (empExst != null &&  businessUnit != null && (dept == false || desig == false))
+                if (businessUnit != null && (isValidTransfer || isValidPromotion))
                 {
                     EmpTransferNPromotion empTransferNPromotion = new EmpTransferNPromotion
                     {
@@ -332,28 +328,19 @@ namespace HRM.Services
                     };
 
                     await _context.empTransferNPromotions.AddAsync(empTransferNPromotion);
-                    await _context.SaveChangesAsync();
                     
-                    if (transferNPromotionCreateVM.IntNewDepartmenId != null && transferNPromotionCreateVM.IntOldDesignationId != null) 
+                    if (isValidTransfer)
                     {
-                        var data = _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == transferNPromotionCreateVM.IntEmployeeId).FirstOrDefault();
-                        if (data != null) 
-                        {
-                            data.IntDepartmentId = (long)transferNPromotionCreateVM.IntNewDepartmenId;
-                            await _context.SaveChangesAsync();
-                        }
+                        empExst.IntDepartmentId = (long)transferNPromotionCreateVM.IntNewDepartmenId;
                     }
                     
-                    if (transferNPromotionCreateVM.IntOldDesignationId != null && transferNPromotionCreateVM.IntNewDesignationId != null) 
+                    if (isValidPromotion)
                     {
-                        var data = _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == transferNPromotionCreateVM.IntEmployeeId).FirstOrDefault();
-                        if (data != null) 
-                        {
-                            data.IntDesignationId = (long)transferNPromotionCreateVM.IntNewDesignationId;
-                            await _context.SaveChangesAsync();
-                        }
+                        empExst.IntDesignationId = (long)transferNPromotionCreateVM.IntNewDesignationId;
                     }
 
+                    _context.empBasicInfos.Update(empExst);
+                    await _context.SaveChangesAsync();
                     return true;
                 }
 
@@ -368,9 +355,64 @@ namespace HRM.Services
             }
         }
 
-        public Task<bool> UpdateEmployeeTrnasferNPromotion(TransferNPromotionCreateVM transferNPromotionCreateVM)
+        public async Task<bool> UpdateEmployeeTrnasferNPromotion(TransferNPromotionCreateVM transferNPromotionCreateVM)
         {
-            throw new NotImplementedException();
+            try
+            {
+                var data = await _context.empTransferNPromotions.Where(x => x.IntEmpTransferNPromotionId == transferNPromotionCreateVM.IntEmpTransferNPromotionId).FirstOrDefaultAsync();
+                var empExst = await _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == transferNPromotionCreateVM.IntEmployeeId && x.IntBusinessUnitId == transferNPromotionCreateVM.IntBusinessUnitId).FirstOrDefaultAsync();
+                var businessUnit = await _context.businessUnits.Where(x => x.IntBusinessUnitId == transferNPromotionCreateVM.IntBusinessUnitId).FirstOrDefaultAsync();
+
+                if (data == null || empExst == null || businessUnit == null)
+                {
+                    return false;
+                }
+
+                bool isValidTransfer = transferNPromotionCreateVM.IntOldDepartmentId != null
+                                       && transferNPromotionCreateVM.IntNewDepartmenId != null
+                                       && await _context.departments.AnyAsync(x => x.IntDepartmentId == transferNPromotionCreateVM.IntOldDepartmentId)
+                                       && await _context.departments.AnyAsync(x => x.IntDepartmentId == transferNPromotionCreateVM.IntNewDepartmenId);
+
+                bool isValidPromotion = transferNPromotionCreateVM.IntOldDesignationId != null
+                                        && transferNPromotionCreateVM.IntNewDesignationId != null
+                                        && await _context.designations.AnyAsync(x => x.IntDesignationId == transferNPromotionCreateVM.IntOldDesignationId)
+                                        && await _context.designations.AnyAsync(x => x.IntDesignationId == transferNPromotionCreateVM.IntNewDesignationId);
+
+                if (isValidTransfer == false && isValidPromotion == false)
+                {
+                    return false;
+                }
+
+                data.IntEmployeeId = transferNPromotionCreateVM.IntEmployeeId;
+                data.IntBusinessUnitId = transferNPromotionCreateVM.IntBusinessUnitId;
+                data.IntOldDepartmentId = transferNPromotionCreateVM.IntOldDepartmentId;
+                data.IntNewDepartmenId = transferNPromotionCreateVM.IntNewDepartmenId;
+                data.IntOldDesignationId = transferNPromotionCreateVM.IntOldDesignationId;
+                data.IntNewDesignationId = transferNPromotionCreateVM.IntNewDesignationId;
+                data.IsTransfer = transferNPromotionCreateVM.IsTransfer;
+                data.IsPromotion = transferNPromotionCreateVM.IsPromotion;
+                data.IntUpdatedBy = transferNPromotionCreateVM.IntUpdatedBy;
+                data.DteUpdatedAt = DateTime.Now;
+
+                if (isValidTransfer)
+                {
+                    empExst.IntDepartmentId = (long)transferNPromotionCreateVM.IntNewDepartmenId;
+                }
+
+                if (isValidPromotion)
+                {
+                    empExst.IntDesignationId = (long)transferNPromotionCreateVM.IntNewDesignationId;
+                }
+
+                _context.empTransferNPromotions.Update(data);
+                _context.empBasicInfos.Update(empExst);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         public async Task<List<EmpTransferNPromotionLandingVM>> EmpTransferNPromotionLandingByDate(DateTime dteFromDate, DateTime dteToDate, long intBusinessUnitId, bool? isTransfer, bool? isPromotion) 
@@ -412,8 +454,8 @@ namespace HRM.Services
                                                                                                     IntCreatedBy = tp.IntCreatedBy,
                                                                                                     StrCreatedAt = tp.DteCreatedAt.ToString("dd MMM yyyy"),
                                                                                                     IntUpdatedBy = tp.IntUpdatedBy,
-                                                                                                    StrUpdatedAt = tp.DteUpdatedAt.Value.ToString("dd MMM yyyy") ?? ""
-                                                                                                }).OrderBy(x => x.IntEmployeeId).AsNoTracking().AsQueryable();
+                                                                                                    StrUpdatedAt = tp.DteUpdatedAt.HasValue ? tp.DteUpdatedAt.Value.ToString("dd MMM yyyy") : ""
+                                                                                                }).OrderByDescending(x => x.IntEmpTransferNPromotionId).AsNoTracking().AsQueryable();
                 if (isTransfer == true && isPromotion == false) 
                 {
                     return await empTransferNPromotionLandingVMs.Where(x => x.IsTransfer == true && x.IsPromotion == false).ToListAsync();
@@ -435,21 +477,22 @@ namespace HRM.Services
         public  async Task<List<EmployeeLandingVM>> EmployeeSearchByAddress(string employeeAdress)
         {
             IQueryable<EmployeeLandingVM> employeeLandings = (from emp in _context.empBasicInfos
-                                                              where emp.IsActive == true && emp.StrAddress == employeeAdress
+                                                              where emp.IsActive == true && emp.StrAddress != null
                                                               && emp.StrAddress.Contains(employeeAdress)
                                                               select new EmployeeLandingVM
                                                               {
+                                                                  IntEmployeeBasicInfoId = emp.IntEmployeeBasicInfoId,
                                                                   StrEmployeeCode = emp.StrEmployeeCode,
                                                                   StrEmployeeName = emp.StrEmployeeName,
+                                                                  IntBusinessUnitId = emp.IntBusinessUnitId,
                                                                   IntDepartmentId = emp.IntDepartmentId,
                                                                   StrDepartmentName = "",
                                                                   IntDesignationId = emp.IntDesignationId,
                                                                   StrDesignationName = "",
                                                                   StrGender = emp.StrGender ?? "",
-                                                                  StrReligion = emp.StrReligion ?? "",
                                                                   StrMaritalStatus = emp.StrMaritalStatus ?? "",
                                                                   StrBloodGroup = emp.StrBloodGroup ?? "",
-                                                                  DteDateOfBirth = emp.DteDateOfBirth.Value.ToString("dd MMM yyyy"),
+                                                                  DteDateOfBirth = emp.DteDateOfBirth.HasValue ? emp.DteDateOfBirth.Value.ToString("dd MMM yyyy") : "",
                                                                   DteJoiningDate = emp.DteJoiningDate,
                                                                   DteConfirmationDate = emp.DteConfirmationDate,
                                                                   DteLastWorkingDate = emp.DteLastWorkingDate,

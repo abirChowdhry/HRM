@@ -12,7 +12,6 @@
         public long? IntDepartmentId { get; set; }
         public long? IntServiceLengthMonths { get; set; }
         public long? IntEmployementTypeId { get; set; }
-        public string? StrReligion { get; set; }
         public decimal NumPercentage { get; set; }
         public long IntCreatedBy { get; set; }
         public long? IntUpdatedBy { get; set; }
@@ -29,7 +28,6 @@
         public long? IntServiceLengthMonths { get; set; }
         public long? IntEmployementTypeId { get; set; }
         public string? StrEmployementType { get; set; }
-        public string? StrReligion { get; set; }
         public decimal NumPercentage { get; set; }
         public bool IsACTIVE { get; set; }
         public long IntCreatedBy { get; set; }

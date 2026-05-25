@@ -25,7 +25,7 @@ namespace HRM.Services
                 var empType = await _context.employementTypes.Where(x => x.IntEmployementId == bonusSetupCreateVM.IntEmployementTypeId).FirstOrDefaultAsync();
                 var nameExst = await _context.bonusSetups.Where(x => x.StrBonusSetupName == bonusSetupCreateVM.StrBonusSetupName).FirstOrDefaultAsync();
 
-                if (businessUnit != null && (dept != null || empType != null || bonusSetupCreateVM.StrReligion != null || bonusSetupCreateVM.IntServiceLengthMonths != null) && nameExst == null)
+                if (businessUnit != null && (dept != null || empType != null || bonusSetupCreateVM.IntServiceLengthMonths != null) && nameExst == null)
                 {
                     BonusSetup bonusSetup = new BonusSetup
                     {
@@ -34,7 +34,7 @@ namespace HRM.Services
                         IntBusinessUnitId = bonusSetupCreateVM.IntBusinessUnitId,
                         IntDepartmentId = bonusSetupCreateVM.IntDepartmentId,
                         IntServiceLengthMonths = bonusSetupCreateVM.IntServiceLengthMonths,
-                        StrReligion = bonusSetupCreateVM.StrReligion,
+                        IntEmployementTypeId = bonusSetupCreateVM.IntEmployementTypeId,
                         NumPercentage = bonusSetupCreateVM.NumPercentage,
                         IsActive = true,
                         IntCreatedBy = bonusSetupCreateVM.IntCreatedBy,
@@ -70,13 +70,13 @@ namespace HRM.Services
 
                 var data = await _context.bonusSetups.Where(x => x.IntBonusSetypId == bonusSetupCreateVM.IntBonusSetypId).FirstOrDefaultAsync();
 
-                if (businessUnit != null && (dept != null || empType != null || bonusSetupCreateVM.StrReligion != null || bonusSetupCreateVM.IntServiceLengthMonths != null) && data != null && exst == null)
+                if (businessUnit != null && (dept != null || empType != null || bonusSetupCreateVM.IntServiceLengthMonths != null) && data != null && exst == null)
                 {
                     data.StrBonusSetupName = bonusSetupCreateVM.StrBonusSetupName;
                     data.IntBusinessUnitId = bonusSetupCreateVM.IntBusinessUnitId;
                     data.IntDepartmentId = bonusSetupCreateVM.IntDepartmentId;
                     data.IntServiceLengthMonths = bonusSetupCreateVM.IntServiceLengthMonths;
-                    data.StrReligion = bonusSetupCreateVM.StrReligion;
+                    data.IntEmployementTypeId = bonusSetupCreateVM.IntEmployementTypeId;
                     data.NumPercentage = bonusSetupCreateVM.NumPercentage;
                     data.IntCreatedBy = bonusSetupCreateVM.IntCreatedBy;
                     data.IntUpdatedBy = bonusSetupCreateVM.IntUpdatedBy;
@@ -122,7 +122,6 @@ namespace HRM.Services
                                                               StrDepartmentName = dept.StrDepartmentName,
                                                               IntEmployementTypeId = bn.IntEmployementTypeId,
                                                               StrEmployementType = emp.StrEmployementName,
-                                                              StrReligion = bn.StrReligion,
                                                               IntServiceLengthMonths = bn.IntServiceLengthMonths,
                                                               NumPercentage = bn.NumPercentage,
                                                               IsACTIVE = bn.IsActive,

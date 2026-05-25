@@ -2,6 +2,7 @@
 using HRM.Models.Bonus;
 using HRM.Models.Payroll;
 using HRM.Models.Salary;
+using HRM.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using System;
 
@@ -9,7 +10,14 @@ namespace HRM.Data
 {
     public class HRMContext : DbContext
     {
-        public HRMContext(DbContextOptions<HRMContext> options) : base(options) { }
+        private readonly ICurrentUserService _currentUserService;
+
+        public HRMContext(DbContextOptions<HRMContext> options, ICurrentUserService currentUserService) : base(options)
+        {
+            _currentUserService = currentUserService;
+        }
+
+        public DbSet<AppUser> appUsers { get; set; }
         public DbSet<EmpBasicInfo> empBasicInfos { get; set; }
         public DbSet<BusinessUnit> businessUnits { get; set; }
         public DbSet<Department> departments { get; set; }
@@ -25,5 +33,53 @@ namespace HRM.Data
         public DbSet<EmpTransferNPromotion> empTransferNPromotions { get; set; }
         public DbSet<BonusSetup> bonusSetups { get; set; }
         public DbSet<BonusGenerate> bonusGenerates { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<AppUser>().HasIndex(x => x.StrEmail).IsUnique();
+
+            modelBuilder.Entity<BusinessUnit>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<Department>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<Designation>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<EmployementType>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<EmpBasicInfo>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<EmpTransferNPromotion>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<PayrollPolicy>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<PayrollElement>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<PayrollGroupHeader>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<PayrollGroupRow>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<SalaryAssignHeader>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<SalaryAssignRow>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<SalaryAdditionNDeduction>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<BonusSetup>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+            modelBuilder.Entity<BonusGenerate>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
+
+            base.OnModelCreating(modelBuilder);
+        }
+
+        public override int SaveChanges()
+        {
+            SetOwnedUserIds();
+            return base.SaveChanges();
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            SetOwnedUserIds();
+            return base.SaveChangesAsync(cancellationToken);
+        }
+
+        private void SetOwnedUserIds()
+        {
+            if (_currentUserService.IsAuthenticated == false)
+            {
+                return;
+            }
+
+            foreach (var entry in ChangeTracker.Entries<IUserOwned>().Where(x => x.State == EntityState.Added && x.Entity.IntUserId == 0))
+            {
+                entry.Entity.IntUserId = _currentUserService.UserId;
+            }
+        }
     }
 }

@@ -2,10 +2,11 @@
 
 namespace HRM.Models
 {
-    public class EmpBasicInfo
+    public class EmpBasicInfo : IUserOwned
     {
         [Key]
         public long IntEmployeeBasicInfoId { get; set; }
+        public long IntUserId { get; set; }
         [Required]
         public string StrEmployeeCode { get; set; }
         [Required]
@@ -15,7 +16,6 @@ namespace HRM.Models
         [Required]
         public long IntDesignationId { get; set; }
         public string? StrGender { get; set; }
-        public string? StrReligion { get; set; }
         public string? StrMaritalStatus { get; set; }
         public string? StrBloodGroup { get; set; }
         public DateTime? DteDateOfBirth { get; set; }

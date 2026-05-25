@@ -2,10 +2,11 @@
 
 namespace HRM.Models
 {
-    public class EmpTransferNPromotion
+    public class EmpTransferNPromotion : IUserOwned
     {
         [Key]
         public long IntEmpTransferNPromotionId { get; set; }
+        public long IntUserId { get; set; }
         public long IntEmployeeId { get; set; }
         public long IntBusinessUnitId { get; set; }
         public long? IntOldDepartmentId { get; set; }
