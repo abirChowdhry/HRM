@@ -27,7 +27,7 @@ namespace HRM.Services
                 IQueryable<SalaryAssignLanding> salaryAssignLandings = (from emp in _context.empBasicInfos
                                                                         join bus in _context.businessUnits on emp.IntBusinessUnitId equals bus.IntBusinessUnitId into b2
                                                                         from business in b2.DefaultIfEmpty()
-                                                                        join head in _context.salaryAssignHeaders on emp.IntEmployeeBasicInfoId equals head.IntEmployeeId into h2
+                                                                        join head in _context.salaryAssignHeaders.Where(x => x.IsActive == true) on emp.IntEmployeeBasicInfoId equals head.IntEmployeeId into h2
                                                                         from header in h2.DefaultIfEmpty()
                                                                         join dep in _context.departments on emp.IntDepartmentId equals dep.IntDepartmentId into d2
                                                                         from dept in d2.DefaultIfEmpty()
@@ -38,6 +38,7 @@ namespace HRM.Services
                                                                         select new SalaryAssignLanding
                                                                         {
                                                                             IntEmployeeId = emp.IntEmployeeBasicInfoId,
+                                                                            IntBusinessUnitId = emp.IntBusinessUnitId,
                                                                             StrBusinessUnitName = business.StrBusinessUnitName,
                                                                             StrEmployeeName = emp.StrEmployeeName,
                                                                             StrDepartmentName = dept.StrDepartmentName,
@@ -59,7 +60,7 @@ namespace HRM.Services
                 IQueryable<SalaryDetailsLanding> salaryDetailsLandings = (from emp in _context.empBasicInfos
                                                                         join bus in _context.businessUnits on emp.IntBusinessUnitId equals bus.IntBusinessUnitId into b2
                                                                         from business in b2.DefaultIfEmpty()
-                                                                        join head in _context.salaryAssignHeaders on emp.IntEmployeeBasicInfoId equals head.IntEmployeeId into h2
+                                                                        join head in _context.salaryAssignHeaders.Where(x => x.IsActive == true) on emp.IntEmployeeBasicInfoId equals head.IntEmployeeId into h2
                                                                         from header in h2.DefaultIfEmpty()
                                                                         join pg in _context.payrollGroupHeaders on header.IntPayrollGroupHeaderId equals pg.IntPayrollGroupHeaderId into pg2
                                                                         from payroll in pg2.DefaultIfEmpty()
@@ -71,12 +72,15 @@ namespace HRM.Services
                                                                         where emp.IsActive == true && emp.IntBusinessUnitId == businessUnitId && header != null
                                                                         select new SalaryDetailsLanding
                                                                         {
+                                                                            IntSalaryAssignHeaderId = header.IntSalaryAssignHeaderId,
                                                                             IntEmployeeId = emp.IntEmployeeBasicInfoId,
+                                                                            IntBusinessUnitId = emp.IntBusinessUnitId,
                                                                             StrBusinessUnitName = business.StrBusinessUnitName,
                                                                             StrEmployeeName = emp.StrEmployeeName,
                                                                             StrDepartmentName = dept.StrDepartmentName,
                                                                             StrDesignationName = desig.StrDesignationName,
                                                                             NumGrossSalary = header.NumGrossSalary,
+                                                                            NumNetGrossSalary = header.NumNetGrossSalary,
                                                                             IntPayrollGroupHeader = payroll.IntPayrollGroupHeaderId,
                                                                             StrPayrollGroupHeader = payroll.StrPayrollGroupHeaderTitle
 
@@ -95,7 +99,7 @@ namespace HRM.Services
             try
             {
 
-                var data = await _context.salaryAssignHeaders.Where(x => x.IntSalaryAssignHeaderId == salaryAssignVM.IntSalaryAssignHeaderId).FirstOrDefaultAsync();
+                var data = await _context.salaryAssignHeaders.Where(x => x.IntEmployeeId == salaryAssignVM.IntEmployeeId && x.IsActive == true).FirstOrDefaultAsync();
                 var businessUnit = await _context.businessUnits.Where(x => x.IntBusinessUnitId == salaryAssignVM.IntBusinessUnitId).FirstOrDefaultAsync();
                 var payrollGroupExst = await _context.payrollGroupHeaders.Where(x => x.IntPayrollGroupHeaderId == salaryAssignVM.IntPayrollGroupHeaderId && x.IntBusinessUnitId == salaryAssignVM.IntBusinessUnitId).FirstOrDefaultAsync();
                 var empExst = await _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == salaryAssignVM.IntEmployeeId).FirstOrDefaultAsync();
@@ -135,7 +139,8 @@ namespace HRM.Services
                           NumNumberOfPercent = er.NumNumberOfPercent,
                           NumAmount =(decimal)((salaryAssignVM.NumNetGrossSalary*er.NumNumberOfPercent)/100),
                           IsActive = true,
-                          IntCreateBy = salaryAssignVM.IntCreateBy
+                          IntCreateBy = salaryAssignVM.IntCreateBy,
+                          DteCreatedAt = DateTime.Now
                         });
                     });
 
@@ -178,10 +183,13 @@ namespace HRM.Services
                     _context.salaryAssignHeaders.Update(header);
                     await _context.SaveChangesAsync();
 
+                    var oldRows = await _context.salaryAssignRows.Where(x => x.IntSalaryAssignHeaderId == header.IntSalaryAssignHeaderId).ToListAsync();
+                    _context.salaryAssignRows.RemoveRange(oldRows);
+                    await _context.SaveChangesAsync();
+
                     var elementRows = await _context.payrollGroupRows.Where(x => x.IntPayrollHeaderId == header.IntPayrollGroupHeaderId).ToListAsync();
 
                     List<SalaryAssignRow> salaryAssignRows = new List<SalaryAssignRow>();
-                    bool check = true;
 
                     elementRows.ForEach(er =>
                     {
@@ -194,27 +202,50 @@ namespace HRM.Services
                             NumNumberOfPercent = er.NumNumberOfPercent,
                             NumAmount = (decimal)((header.NumNetGrossSalary * er.NumNumberOfPercent) / 100),
                             IsActive = true,
-                            IntCreateBy = (long)header.IntCreateBy
+                            IntCreateBy = (long)header.IntCreateBy,
+                            DteCreatedAt = DateTime.Now
                         });
                     });
 
                     await _context.salaryAssignRows.AddRangeAsync(salaryAssignRows);
-                    var flag = await _context.SaveChangesAsync();
-
-                    if (flag < 0)
-                    {
-                        var rows = await _context.salaryAssignRows.Where(x => x.IntSalaryAssignHeaderId == header.IntSalaryAssignHeaderId).ToListAsync();
-                        _context.salaryAssignRows.RemoveRange(rows);
-                        await _context.SaveChangesAsync();
-                        return true;
-                    }
-                    return false;
+                    await _context.SaveChangesAsync();
+                    return true;
                 }
                 return false;
             }
             catch (Exception ex)
             {
                 throw ex;
+            }
+        }
+
+        public async Task<bool> DeleteSalaryAssign(long salaryAssignHeaderId)
+        {
+            try
+            {
+                var header = await _context.salaryAssignHeaders.Where(x => x.IntSalaryAssignHeaderId == salaryAssignHeaderId).FirstOrDefaultAsync();
+                var rows = await _context.salaryAssignRows.Where(x => x.IntSalaryAssignHeaderId == salaryAssignHeaderId).ToListAsync();
+
+                if (header == null)
+                {
+                    return false;
+                }
+
+                header.IsActive = false;
+                header.DteUpdateDateTime = DateTime.Now;
+                foreach (var row in rows)
+                {
+                    row.IsActive = false;
+                }
+
+                _context.salaryAssignHeaders.Update(header);
+                _context.salaryAssignRows.UpdateRange(rows);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -230,9 +261,11 @@ namespace HRM.Services
                     var businessUnit = await _context.businessUnits.Where(x => x.IntBusinessUnitId == salaryAdditionNDeductionVM.IntBusinessUnitId).FirstOrDefaultAsync();
                     var empExst = await _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == salaryAdditionNDeductionVM.IntEmployeeId).FirstOrDefaultAsync();
                     var grossSalary = await _context.salaryAssignHeaders.Where(x => x.IntEmployeeId == salaryAdditionNDeductionVM.IntEmployeeId).Select(x => x.NumGrossSalary).FirstOrDefaultAsync();
-                    var elementTypeCheck = await _context.payrollElements.Where(x => x.IntBusinessUnitId == salaryAdditionNDeductionVM.IntBusinessUnitId && x.IsBasicElement == true && x.IntPayrollElementId == salaryAdditionNDeductionVM.IntAdditionNdeductionTypeId).FirstOrDefaultAsync();
+                    var amount = salaryAdditionNDeductionVM.NumAmount ?? 0;
+                    var hasSingleDirection = salaryAdditionNDeductionVM.IsAddition == true ^ salaryAdditionNDeductionVM.IsDeduction == true;
+                    var hasValidAmount = amount > 0 && (salaryAdditionNDeductionVM.IsAddition == true || grossSalary > amount);
 
-                    if (empExst != null && businessUnit != null && grossSalary > salaryAdditionNDeductionVM.NumAmount && elementTypeCheck != null)
+                    if (empExst != null && businessUnit != null && hasSingleDirection && hasValidAmount)
                     {
                         SalaryAdditionNDeduction salaryAdditionNDeduction = new SalaryAdditionNDeduction
                         {
@@ -264,6 +297,125 @@ namespace HRM.Services
                 {
                     return false;
                 }
+        }
+
+        public async Task<bool> UpdateSalaryAdditionNDeduction(SalaryAdditionNDeductionVM salaryAdditionNDeductionVM)
+        {
+            try
+            {
+                var data = await _context.salaryAdditionNDeductions
+                    .Where(x => x.IntSalaryAdditionAndDeductionId == salaryAdditionNDeductionVM.IntSalaryAdditionAndDeductionId)
+                    .FirstOrDefaultAsync();
+                var businessUnit = await _context.businessUnits.Where(x => x.IntBusinessUnitId == salaryAdditionNDeductionVM.IntBusinessUnitId).FirstOrDefaultAsync();
+                var empExst = await _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == salaryAdditionNDeductionVM.IntEmployeeId).FirstOrDefaultAsync();
+                var grossSalary = await _context.salaryAssignHeaders.Where(x => x.IntEmployeeId == salaryAdditionNDeductionVM.IntEmployeeId && x.IsActive == true).Select(x => x.NumGrossSalary).FirstOrDefaultAsync();
+                var amount = salaryAdditionNDeductionVM.NumAmount ?? 0;
+                var hasSingleDirection = salaryAdditionNDeductionVM.IsAddition == true ^ salaryAdditionNDeductionVM.IsDeduction == true;
+                var hasValidAmount = amount > 0 && (salaryAdditionNDeductionVM.IsAddition == true || grossSalary > amount);
+
+                if (data == null || businessUnit == null || empExst == null || !hasSingleDirection || !hasValidAmount)
+                {
+                    return false;
+                }
+
+                data.IntBusinessUnitId = salaryAdditionNDeductionVM.IntBusinessUnitId;
+                data.IntEmployeeId = salaryAdditionNDeductionVM.IntEmployeeId;
+                data.IntYear = salaryAdditionNDeductionVM.IntYear;
+                data.IntMonth = salaryAdditionNDeductionVM.IntMonth;
+                data.IsAddition = salaryAdditionNDeductionVM.IsAddition;
+                data.IsDeduction = salaryAdditionNDeductionVM.IsDeduction;
+                data.IntAdditionNdeductionTypeId = salaryAdditionNDeductionVM.IntAdditionNdeductionTypeId;
+                data.NumAmount = salaryAdditionNDeductionVM.NumAmount;
+                data.IntUpdatedBy = salaryAdditionNDeductionVM.IntUpdatedBy;
+                data.DteUpdatedAt = DateTime.Now;
+
+                _context.salaryAdditionNDeductions.Update(data);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public async Task<bool> DeleteSalaryAdditionNDeduction(long adjustmentId)
+        {
+            try
+            {
+                var data = await _context.salaryAdditionNDeductions.Where(x => x.IntSalaryAdditionAndDeductionId == adjustmentId).FirstOrDefaultAsync();
+                if (data == null)
+                {
+                    return false;
+                }
+
+                data.IsActive = false;
+                data.DteUpdatedAt = DateTime.Now;
+                _context.salaryAdditionNDeductions.Update(data);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public async Task<List<SalaryAdjustmentLanding>> SalaryAdjustmentLanding(long businessUnitId, long employeeId, long yearId, long monthId)
+        {
+            try
+            {
+                IQueryable<SalaryAdjustmentLanding> query = from adjustment in _context.salaryAdditionNDeductions
+                                                            join emp in _context.empBasicInfos on adjustment.IntEmployeeId equals emp.IntEmployeeBasicInfoId into e2
+                                                            from employee in e2.DefaultIfEmpty()
+                                                            join bus in _context.businessUnits on adjustment.IntBusinessUnitId equals bus.IntBusinessUnitId into b2
+                                                            from business in b2.DefaultIfEmpty()
+                                                            where adjustment.IsActive == true
+                                                            select new SalaryAdjustmentLanding
+                                                            {
+                                                                IntSalaryAdditionAndDeductionId = adjustment.IntSalaryAdditionAndDeductionId,
+                                                                IntBusinessUnitId = adjustment.IntBusinessUnitId,
+                                                                StrBusinessUnitName = business.StrBusinessUnitName,
+                                                                IntEmployeeId = adjustment.IntEmployeeId,
+                                                                StrEmployeeName = employee.StrEmployeeName,
+                                                                IntYear = adjustment.IntYear,
+                                                                IntMonth = adjustment.IntMonth,
+                                                                IsAddition = adjustment.IsAddition,
+                                                                IsDeduction = adjustment.IsDeduction,
+                                                                IntAdditionNdeductionTypeId = adjustment.IntAdditionNdeductionTypeId,
+                                                                NumAmount = adjustment.NumAmount
+                                                            };
+
+                if (businessUnitId > 0)
+                {
+                    query = query.Where(x => x.IntBusinessUnitId == businessUnitId);
+                }
+
+                if (employeeId > 0)
+                {
+                    query = query.Where(x => x.IntEmployeeId == employeeId);
+                }
+
+                if (yearId > 0)
+                {
+                    query = query.Where(x => x.IntYear == yearId);
+                }
+
+                if (monthId > 0)
+                {
+                    query = query.Where(x => x.IntMonth == monthId);
+                }
+
+                return await query.OrderByDescending(x => x.IntYear)
+                    .ThenByDescending(x => x.IntMonth)
+                    .ThenBy(x => x.StrEmployeeName)
+                    .AsNoTracking()
+                    .ToListAsync();
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
         }
 
 
@@ -318,9 +470,10 @@ namespace HRM.Services
         {
             try
             {
-                var salaryNotHoldEmps = await _context.empBasicInfos.Where(x => x.IsSalaryHold == false).Select(x => x.IntEmployeeBasicInfoId).ToListAsync();
+                var salaryNotHoldEmps = await _context.empBasicInfos.Where(x => x.IsSalaryHold == false && x.IsActive == true).Select(x => x.IntEmployeeBasicInfoId).ToListAsync();
 
                 var totalEmployee = _context.salaryAssignHeaders
+                                            .Where(x => x.IsActive == true && salaryNotHoldEmps.Contains(x.IntEmployeeId))
                                             .GroupBy(x => x.IntBusinessUnitId)
                                             .Select(g => new
                                             {
@@ -330,7 +483,7 @@ namespace HRM.Services
                                             .ToList();
 
                 var totalGrossSalary = _context.salaryAssignHeaders
-                                                .Where(x => salaryNotHoldEmps.Contains(x.IntEmployeeId))
+                                                .Where(x => x.IsActive == true && salaryNotHoldEmps.Contains(x.IntEmployeeId))
                                                 .GroupBy(x => x.IntBusinessUnitId)
                                                 .Select(g => new
                                                 {
@@ -340,7 +493,7 @@ namespace HRM.Services
                                                 .ToList();
 
                 var totalAddition = _context.salaryAdditionNDeductions
-                                            .Where(x => x.IsAddition == true && x.IntYear == intYearId && x.IntMonth == intMonthId)
+                                            .Where(x => x.IsActive == true && x.IsAddition == true && x.IntYear == intYearId && x.IntMonth == intMonthId)
                                             .GroupBy(x => x.IntBusinessUnitId)
                                             .Select(a => new
                                             {
@@ -350,7 +503,7 @@ namespace HRM.Services
                                             .ToList();
 
                 var totalDeduction = _context.salaryAdditionNDeductions
-                                            .Where(x => x.IsDeduction == true && x.IntYear == intYearId && x.IntMonth == intMonthId)
+                                            .Where(x => x.IsActive == true && x.IsDeduction == true && x.IntYear == intYearId && x.IntMonth == intMonthId)
                                             .GroupBy(x => x.IntBusinessUnitId)
                                             .Select(a => new
                                             {
@@ -359,46 +512,6 @@ namespace HRM.Services
                                             })
                                             .ToList();
 
-                var exstBonusGenerate = await _context.bonusGenerates.Where(x => x.IntYearId == intYearId && x.IntMonthId == intMonthId).Select(x => x.IntBonusSetupId).ToListAsync();
-
-                var exstBonus = await _context.bonusSetups.Where(x => exstBonusGenerate.Contains(x.IntBonusSetypId)).ToListAsync();
-                var bonusDeptList = exstBonus.Select(x => x.IntDepartmentId).ToList();
-                var bonusempTypeList = exstBonus.Select(x => x.IntEmployementTypeId).ToList();
-
-                var eligibleEmps = await _context.empBasicInfos.Where(x => bonusDeptList.Contains(x.IntDepartmentId) || bonusempTypeList.Contains(x.IntEmploymentTypeId)).ToListAsync();
-
-
-                List<TotalBonus> totalBonus = new List<TotalBonus>();
-                foreach (var emp in eligibleEmps)
-                {
-                    var bonusSetup = exstBonus.FirstOrDefault(b => b.IntDepartmentId == emp.IntDepartmentId || b.IntEmployementTypeId == emp.IntEmploymentTypeId);
-                    decimal percentage = bonusSetup != null ? bonusSetup.NumPercentage : 0;
-
-                    var bonusAmount = _context.salaryAssignHeaders
-                                            .Where(x => x.IntEmployeeId == emp.IntEmployeeBasicInfoId)
-                                            .GroupBy(x => x.IntBusinessUnitId)
-                                            .Select(s => new
-                                            {
-                                                BusinessUnitId = s.Key,
-                                                BonusAmount = s.Sum(x => x.NumGrossSalary * percentage / 100)
-                                            })
-                                            .ToList();
-
-                    totalBonus.AddRange(bonusAmount.Select(b => new TotalBonus
-                    {
-                        IntBusinessUnitId = b.BusinessUnitId,
-                        NumBonus = b.BonusAmount
-                    }));
-                }
-
-                var totalBonusByBusinessUnit = totalBonus.GroupBy(b => b.IntBusinessUnitId)
-                                                        .Select(group => new
-                                                        {
-                                                            BusinessUnitId = group.Key,
-                                                            TotalBonus = group.Sum(b => b.NumBonus)
-                                                        })
-                                                        .ToDictionary(b => b.BusinessUnitId, b => b.TotalBonus);
-
                 var salaryGenerateLandingVMs = new List<SalaryGenerateLandingVM>();
 
                 foreach (var gross in totalGrossSalary)
@@ -406,14 +519,13 @@ namespace HRM.Services
                     var emp = totalEmployee.FirstOrDefault(x => x.BusinessUnitId == gross.BusinessUnitId);
                     var add = totalAddition.FirstOrDefault(x => x.BusinessUnitId == gross.BusinessUnitId);
                     var ded = totalDeduction.FirstOrDefault(x => x.BusinessUnitId == gross.BusinessUnitId);
-                    var bns = totalBonusByBusinessUnit.ContainsKey(gross.BusinessUnitId) ? totalBonusByBusinessUnit[gross.BusinessUnitId] : 0;
 
                     SalaryGenerateLandingVM salaryGenerateLandingVM = new SalaryGenerateLandingVM
                     {
                         IntBusinessUnitId = gross.BusinessUnitId,
                         StrBusinessUnitName = _context.businessUnits.FirstOrDefault(x => x.IntBusinessUnitId == gross.BusinessUnitId)?.StrBusinessUnitName ?? "",
-                        IntTotalEmployee = emp.TotalEmployees,
-                        NumTotalPaybleSalary = gross.TotalGrossSalary + (add?.TotalAddition ?? 0) - (ded?.TotalDeduction ?? 0) + (bns)
+                        IntTotalEmployee = emp?.TotalEmployees ?? 0,
+                        NumTotalPaybleSalary = gross.TotalGrossSalary + (add?.TotalAddition ?? 0) - (ded?.TotalDeduction ?? 0)
                     };
                     salaryGenerateLandingVMs.Add(salaryGenerateLandingVM);
                 }

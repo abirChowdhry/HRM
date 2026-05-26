@@ -12,7 +12,6 @@ import {
   CircleDollarSign,
   ClipboardList,
   Edit3,
-  Gift,
   KeyRound,
   LayoutDashboard,
   Loader2,
@@ -32,13 +31,45 @@ import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 const AUTH_KEY = "hrm-auth";
+const AUTH_SESSION_MS = 60 * 60 * 1000;
 
-function getStoredAuth() {
+function getTokenExpiry(token) {
   try {
-    return JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
+    const payload = JSON.parse(atob(token.split(".")[1] || ""));
+    return payload.exp ? payload.exp * 1000 : null;
   } catch {
     return null;
   }
+}
+
+function getStoredAuth() {
+  try {
+    const auth = JSON.parse(localStorage.getItem(AUTH_KEY) || "null");
+    if (!auth?.token) return null;
+
+    const jwtExpiry = getTokenExpiry(auth.token);
+    const expiry = auth.expiresAt || jwtExpiry;
+    if (expiry && Date.now() >= expiry) {
+      localStorage.removeItem(AUTH_KEY);
+      return null;
+    }
+
+    return auth;
+  } catch {
+    localStorage.removeItem(AUTH_KEY);
+    return null;
+  }
+}
+
+function createSession(response) {
+  const now = Date.now();
+  const jwtExpiry = getTokenExpiry(response.token);
+  const sessionExpiry = now + AUTH_SESSION_MS;
+  return {
+    ...response,
+    issuedAt: now,
+    expiresAt: jwtExpiry ? Math.min(sessionExpiry, jwtExpiry) : sessionExpiry
+  };
 }
 
 const emptyData = {
@@ -47,10 +78,12 @@ const emptyData = {
   designations: [],
   employmentTypes: [],
   employees: [],
-  payrollPolicies: [],
-  payrollElements: [],
+  payrollGroups: [],
+  payrollGroupRows: {},
+  salaryCandidates: [],
   salaryDetails: [],
-  bonuses: [],
+  salaryAdjustments: [],
+  salaryGeneration: [],
   transferHistory: []
 };
 
@@ -72,43 +105,67 @@ const emptyEmployee = {
   intUpdatedBy: 1
 };
 
-const emptyPolicy = {
-  intPayrollPolicyId: 0,
+const emptyPayrollGroup = {
+  intPayrollGroupHeaderId: 0,
+  strPayrollGroupHeaderTitle: "",
   intBusinessUnitId: "",
-  strPayrollPolicyName: "",
-  isSalaryDivideByActualMonthDays: true,
-  intGrossSalaryDevidedByDays: 30,
-  intGrossSalaryRoundDigits: 2,
-  isGrossSalaryRoundUp: false,
-  isGrossSalaryRoundDown: false,
-  intNetPayableSalaryRoundDigits: 2,
-  isNetPayableSalaryRoundUp: false,
-  isNetPayableSalaryRoundDown: false,
+  intPayrollPolicyId: null,
+  intCreatedBy: 1,
+  intUpdatedBy: 1,
+  payrollGroupRowList: [
+    { intPayrollGroupRowId: 0, intPayrollElementTypeId: 1, strPayrollElementName: "Basic salary", numNumberOfPercent: 60, isActive: true },
+    { intPayrollGroupRowId: 0, intPayrollElementTypeId: 2, strPayrollElementName: "House allowance", numNumberOfPercent: 25, isActive: true },
+    { intPayrollGroupRowId: 0, intPayrollElementTypeId: 3, strPayrollElementName: "Other allowance", numNumberOfPercent: 15, isActive: true }
+  ]
+};
+
+const emptySalaryAssign = {
+  intSalaryAssignHeaderId: 0,
+  intPayrollGroupHeaderId: "",
+  intEmployeeId: "",
+  intBusinessUnitId: "",
+  numGrossSalary: "",
+  numNetGrossSalary: "",
+  intCreateBy: 1,
+  intUpdateBy: 1
+};
+
+const emptyAdjustment = {
+  intSalaryAdditionAndDeductionId: 0,
+  intBusinessUnitId: "",
+  intEmployeeId: "",
+  intYear: new Date().getFullYear(),
+  intMonth: new Date().getMonth() + 1,
+  isAddition: true,
+  isDeduction: false,
+  intAdditionNdeductionTypeId: "",
+  numAmount: "",
   intCreatedBy: 1,
   intUpdatedBy: 1
 };
 
-const emptyElement = {
-  intPayrollElementId: 0,
-  strPayrollElementName: "",
-  intBusinessUnitId: "",
-  isBasicElement: false,
-  isSalaryElement: true,
-  intCreatedBy: 1,
-  intUpdatedBy: 1
-};
+const adjustmentTypes = [
+  [1, "Allowance"],
+  [2, "Overtime"],
+  [3, "Tax"],
+  [4, "Advance"],
+  [5, "Penalty"]
+];
 
-const emptyBonus = {
-  intBonusSetypId: 0,
-  strBonusSetupName: "",
-  intBusinessUnitId: "",
-  intDepartmentId: "",
-  intEmployementTypeId: "",
-  intServiceLengthMonths: "",
-  numPercentage: "",
-  intCreatedBy: 1,
-  intUpdatedBy: 1
-};
+const months = [
+  [1, "January"],
+  [2, "February"],
+  [3, "March"],
+  [4, "April"],
+  [5, "May"],
+  [6, "June"],
+  [7, "July"],
+  [8, "August"],
+  [9, "September"],
+  [10, "October"],
+  [11, "November"],
+  [12, "December"]
+];
 
 const emptyTransfer = {
   intEmpTransferNPromotionId: 0,
@@ -129,9 +186,8 @@ const navItems = [
   { id: "employees", label: "Employees", icon: UsersRound },
   { id: "movement", label: "Transfer", icon: ArrowRightLeft },
   { id: "setup", label: "Setup", icon: Building2 },
-  { id: "payroll", label: "Payroll", icon: WalletCards },
   { id: "salary", label: "Salary", icon: Banknote },
-  { id: "bonus", label: "Bonus", icon: Gift }
+  { id: "payroll", label: "Payroll", icon: WalletCards }
 ];
 
 function titleCase(value) {
@@ -229,14 +285,25 @@ function useHrmData() {
 
       const employees = employeeResponses.flatMap((response) => response?.data || response?.Data || []);
 
-      const [payrollPolicies, payrollElements, salaryDetails, bonuses] = selectedBusinessUnitId
-        ? await Promise.all([
-            api(`/Payroll/PayrollPolicyLanding?businessUnitId=${selectedBusinessUnitId}`, { method: "POST" }),
-            api(`/Payroll/PayrollElementLanding?businessUnitId=${selectedBusinessUnitId}`, { method: "POST" }),
-            api(`/Salary/SalaryDetailsLanding?businessUnitId=${selectedBusinessUnitId}`, { method: "POST" }),
-            api(`/Bonus/BonusLanding?intBusinessUnitId=${selectedBusinessUnitId}`, { method: "POST" })
-          ])
-        : [[], [], [], []];
+      const [groupResponses, salaryCandidateResponses, salaryDetailResponses, salaryAdjustments] = await Promise.all([
+        Promise.all(businessUnitIds.map((businessUnitId) => api(`/Payroll/PayrollHeaderLanding?businessUnitId=${businessUnitId}`, { method: "POST" }))),
+        Promise.all(businessUnitIds.map((businessUnitId) => api(`/Salary/SalaryAssignLanding?businessUnitId=${businessUnitId}`, { method: "POST" }))),
+        Promise.all(businessUnitIds.map((businessUnitId) => api(`/Salary/SalaryDetailsLanding?businessUnitId=${businessUnitId}`, { method: "POST" }))),
+        api("/Salary/SalaryAdjustmentLanding", { method: "POST" })
+      ]);
+
+      const payrollGroups = groupResponses.flatMap((response) => response || []);
+      const salaryCandidates = salaryCandidateResponses.flatMap((response) => response || []);
+      const salaryDetails = salaryDetailResponses.flatMap((response) => response || []);
+      const rowResponses = await Promise.all(
+        payrollGroups.map((group) => api(`/Payroll/PayrollRowLanding?headerId=${group.intPayrollGroupHeaderId}`, { method: "POST" }))
+      );
+      const payrollGroupRows = payrollGroups.reduce((rowsByGroup, group, index) => ({
+        ...rowsByGroup,
+        [group.intPayrollGroupHeaderId]: rowResponses[index] || []
+      }), {});
+
+      const salaryGeneration = [];
 
       const transferResponses = await Promise.all(
         businessUnitIds.map((businessUnitId) =>
@@ -254,10 +321,12 @@ function useHrmData() {
         designations,
         employmentTypes,
         employees,
-        payrollPolicies,
-        payrollElements,
+        payrollGroups,
+        payrollGroupRows,
+        salaryCandidates,
         salaryDetails,
-        bonuses,
+        salaryAdjustments,
+        salaryGeneration,
         transferHistory
       });
       setDemoMode(false);
@@ -306,6 +375,13 @@ function useHrmData() {
     }));
   }
 
+  function localReplace(collection, rows) {
+    setData((current) => ({
+      ...current,
+      [collection]: rows
+    }));
+  }
+
   return {
     data,
     isDemoMode,
@@ -315,7 +391,8 @@ function useHrmData() {
     setNotice,
     localInsert,
     localUpsert,
-    localDelete
+    localDelete,
+    localReplace
   };
 }
 
@@ -325,17 +402,17 @@ function App() {
   const [active, setActive] = useState("dashboard");
   const [searchText, setSearchText] = useState("");
   const [employeeForm, setEmployeeForm] = useState(emptyEmployee);
-  const [policyForm, setPolicyForm] = useState(emptyPolicy);
-  const [elementForm, setElementForm] = useState(emptyElement);
-  const [bonusForm, setBonusForm] = useState(emptyBonus);
+  const [payrollGroupForm, setPayrollGroupForm] = useState(emptyPayrollGroup);
+  const [salaryAssignForm, setSalaryAssignForm] = useState(emptySalaryAssign);
+  const [adjustmentForm, setAdjustmentForm] = useState(emptyAdjustment);
   const [transferForm, setTransferForm] = useState(emptyTransfer);
   const [setupDraft, setSetupDraft] = useState({ businessUnit: "", department: "", designation: "", employmentType: "" });
   const [setupEdit, setSetupEdit] = useState({ type: "", id: "" });
   const [formErrors, setFormErrors] = useState({
     employee: [],
-    policy: [],
-    element: [],
-    bonus: [],
+    payrollGroup: [],
+    salaryAssign: [],
+    adjustment: [],
     transfer: []
   });
 
@@ -345,10 +422,12 @@ function App() {
     designations,
     employmentTypes,
     employees,
-    payrollPolicies,
-    payrollElements,
+    payrollGroups,
+    payrollGroupRows,
+    salaryCandidates,
     salaryDetails,
-    bonuses,
+    salaryAdjustments,
+    salaryGeneration,
     transferHistory
   } = store.data;
 
@@ -363,18 +442,35 @@ function App() {
       method: "POST",
       body: JSON.stringify(values)
     });
-    localStorage.setItem(AUTH_KEY, JSON.stringify(response));
-    setAuth(response);
-    store.setNotice(`Welcome, ${response.fullName || response.email}`);
+    const session = createSession(response);
+    localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+    setAuth(session);
+    store.setNotice(`Welcome, ${session.fullName || session.email}`);
     await store.reload();
   }
 
-  function logout() {
+  function logout(message = "Signed out") {
     localStorage.removeItem(AUTH_KEY);
     setAuth(null);
     setActive("dashboard");
-    store.setNotice("Signed out");
+    store.setNotice(message);
   }
+
+  useEffect(() => {
+    if (!auth?.expiresAt) return undefined;
+
+    const remaining = auth.expiresAt - Date.now();
+    if (remaining <= 0) {
+      logout("Session expired. Please login again.");
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      logout("Session expired. Please login again.");
+    }, remaining);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [auth?.expiresAt]);
 
   const filteredEmployees = useMemo(() => {
     const term = searchText.trim().toLowerCase();
@@ -570,160 +666,338 @@ function App() {
     }
   }
 
-  async function savePolicy(event) {
+  async function savePayrollGroup(event) {
     event.preventDefault();
+    const totalPercent = payrollGroupForm.payrollGroupRowList.reduce((sum, row) => sum + Number(row.numNumberOfPercent || 0), 0);
     const errors = collectRequiredErrors([
-      { label: "Policy name", value: policyForm.strPayrollPolicyName?.trim() },
-      { label: "Business unit", value: policyForm.intBusinessUnitId },
-      { label: "Salary days", value: policyForm.intGrossSalaryDevidedByDays }
+      { label: "Structure title", value: payrollGroupForm.strPayrollGroupHeaderTitle?.trim() },
+      { label: "Business unit", value: payrollGroupForm.intBusinessUnitId }
     ]);
 
+    if (payrollGroupForm.payrollGroupRowList.some((row) => !row.strPayrollElementName?.trim() || Number(row.numNumberOfPercent || 0) <= 0)) {
+      errors.push("Structure rows");
+    }
+
+    if (totalPercent !== 100) {
+      errors.push("Component percentage must total 100");
+    }
+
     if (errors.length > 0) {
-      setFormErrors((current) => ({ ...current, policy: errors }));
+      setFormErrors((current) => ({ ...current, payrollGroup: errors }));
       return;
     }
 
-    setFormErrors((current) => ({ ...current, policy: [] }));
-    const business = businessUnits.find((item) => Number(item.intBusinessUnitId) === Number(policyForm.intBusinessUnitId));
+    setFormErrors((current) => ({ ...current, payrollGroup: [] }));
+    const business = businessUnits.find((item) => Number(item.intBusinessUnitId) === Number(payrollGroupForm.intBusinessUnitId));
     const payload = {
-      ...policyForm,
-      intPayrollPolicyId: toNumber(policyForm.intPayrollPolicyId),
-      intBusinessUnitId: toNumber(policyForm.intBusinessUnitId),
-      intGrossSalaryDevidedByDays: toNumber(policyForm.intGrossSalaryDevidedByDays),
-      intGrossSalaryRoundDigits: toNumber(policyForm.intGrossSalaryRoundDigits),
-      intNetPayableSalaryRoundDigits: toNumber(policyForm.intNetPayableSalaryRoundDigits)
+      ...payrollGroupForm,
+      intPayrollGroupHeaderId: toNumber(payrollGroupForm.intPayrollGroupHeaderId),
+      intBusinessUnitId: toNumber(payrollGroupForm.intBusinessUnitId),
+      intPayrollPolicyId: null,
+      payrollGroupRowList: payrollGroupForm.payrollGroupRowList.map((row, index) => ({
+        ...row,
+        intPayrollGroupRowId: toNumber(row.intPayrollGroupRowId),
+        intPayrollElementTypeId: toNumber(row.intPayrollElementTypeId || index + 1),
+        strPayrollElementName: row.strPayrollElementName.trim(),
+        numNumberOfPercent: Number(row.numNumberOfPercent || 0),
+        isActive: true
+      }))
     };
+
     try {
       if (!store.isDemoMode) {
-        await api("/Payroll/CreateNUpdatePayrollPolicy", { method: "POST", body: JSON.stringify(payload) });
+        await api("/Payroll/PayrollGroupHeaderNRowCreateNUpdate", { method: "POST", body: JSON.stringify(payload) });
         await store.reload();
       } else {
-        store.localUpsert("payrollPolicies", { ...payload, strBusinessUnitName: business?.strBusinessUnitName || "" }, "intPayrollPolicyId");
-      }
-      setPolicyForm(emptyPolicy);
-      store.setNotice("Payroll policy saved");
-    } catch (error) {
-      store.setNotice(error.message);
-    }
-  }
-
-  async function removePolicy(id) {
-    try {
-      if (!store.isDemoMode) {
-        await api(`/Payroll/DeletePayrollPolicy?policyId=${id}`, { method: "POST" });
-        await store.reload();
-      } else {
-        store.localDelete("payrollPolicies", "intPayrollPolicyId", id);
-      }
-      store.setNotice("Payroll policy removed");
-    } catch (error) {
-      store.setNotice(error.message);
-    }
-  }
-
-  async function saveElement(event) {
-    event.preventDefault();
-    const errors = collectRequiredErrors([
-      { label: "Element name", value: elementForm.strPayrollElementName?.trim() },
-      { label: "Business unit", value: elementForm.intBusinessUnitId }
-    ]);
-
-    if (errors.length > 0) {
-      setFormErrors((current) => ({ ...current, element: errors }));
-      return;
-    }
-
-    setFormErrors((current) => ({ ...current, element: [] }));
-    const business = businessUnits.find((item) => Number(item.intBusinessUnitId) === Number(elementForm.intBusinessUnitId));
-    const payload = {
-      ...elementForm,
-      intPayrollElementId: toNumber(elementForm.intPayrollElementId),
-      intBusinessUnitId: toNumber(elementForm.intBusinessUnitId)
-    };
-    try {
-      if (!store.isDemoMode) {
-        await api("/Payroll/CreateNUpdatePayrollElement", { method: "POST", body: JSON.stringify(payload) });
-        await store.reload();
-      } else {
+        const isEditing = payload.intPayrollGroupHeaderId > 0;
+        const nextId = isEditing ? payload.intPayrollGroupHeaderId : Math.max(0, ...payrollGroups.map((row) => Number(row.intPayrollGroupHeaderId || 0))) + 1;
         store.localUpsert(
-          "payrollElements",
-          { ...payload, strBusinessUnitName: business?.strBusinessUnitName || "", isActive: true },
-          "intPayrollElementId"
+          "payrollGroups",
+          {
+            intPayrollGroupHeaderId: nextId,
+            strPayrollGroupHeaderTitle: payload.strPayrollGroupHeaderTitle,
+            intBusinessUnitId: payload.intBusinessUnitId,
+            strBusinessUnitName: business?.strBusinessUnitName || "",
+            strPayrollPolicyName: "",
+            isActive: true
+          },
+          "intPayrollGroupHeaderId"
         );
+        store.localReplace("payrollGroupRows", {
+          ...payrollGroupRows,
+          [nextId]: payload.payrollGroupRowList.map((row, index) => ({
+            ...row,
+            intPayrollGroupRowId: row.intPayrollGroupRowId || index + 1
+          }))
+        });
       }
-      setElementForm(emptyElement);
-      store.setNotice("Payroll element saved");
+      setPayrollGroupForm(emptyPayrollGroup);
+      store.setNotice("Salary structure saved");
     } catch (error) {
       store.setNotice(error.message);
     }
   }
 
-  async function removeElement(id) {
+  function updatePayrollGroupRow(index, key, value) {
+    setPayrollGroupForm((current) => ({
+      ...current,
+      payrollGroupRowList: current.payrollGroupRowList.map((row, rowIndex) => (rowIndex === index ? { ...row, [key]: value } : row))
+    }));
+  }
+
+  function addPayrollGroupRow() {
+    setPayrollGroupForm((current) => ({
+      ...current,
+      payrollGroupRowList: [
+        ...current.payrollGroupRowList,
+        { intPayrollGroupRowId: 0, intPayrollElementTypeId: current.payrollGroupRowList.length + 1, strPayrollElementName: "", numNumberOfPercent: "", isActive: true }
+      ]
+    }));
+  }
+
+  function removePayrollGroupRow(index) {
+    setPayrollGroupForm((current) => ({
+      ...current,
+      payrollGroupRowList: current.payrollGroupRowList.filter((_, rowIndex) => rowIndex !== index)
+    }));
+  }
+
+  async function removePayrollGroup(id) {
     try {
       if (!store.isDemoMode) {
-        await api(`/Payroll/DeletePayrollElement?elementId=${id}`, { method: "POST" });
+        await api(`/Payroll/DeletePayrollHeaderNRow?headerId=${id}`, { method: "POST" });
         await store.reload();
       } else {
-        store.localDelete("payrollElements", "intPayrollElementId", id);
+        store.localDelete("payrollGroups", "intPayrollGroupHeaderId", id);
       }
-      store.setNotice("Payroll element removed");
+      store.setNotice("Salary structure removed");
     } catch (error) {
       store.setNotice(error.message);
     }
   }
 
-  async function saveBonus(event) {
+  function editPayrollGroup(group) {
+    const rows = payrollGroupRows[group.intPayrollGroupHeaderId] || [];
+    setPayrollGroupForm({
+      ...emptyPayrollGroup,
+      intPayrollGroupHeaderId: group.intPayrollGroupHeaderId || 0,
+      strPayrollGroupHeaderTitle: group.strPayrollGroupHeaderTitle || "",
+      intBusinessUnitId: group.intBusinessUnitId || "",
+      intPayrollPolicyId: null,
+      intUpdatedBy: 1,
+      payrollGroupRowList: rows.length
+        ? rows.map((row, index) => ({
+            intPayrollGroupRowId: row.intPayrollGroupRowId || 0,
+            intPayrollElementTypeId: row.intPayrollElementTypeId || index + 1,
+            strPayrollElementName: row.strPayrollElementName || "",
+            numNumberOfPercent: row.numNumberOfPercent || "",
+            isActive: true
+          }))
+        : emptyPayrollGroup.payrollGroupRowList
+    });
+  }
+
+  async function saveSalaryAssignment(event) {
     event.preventDefault();
+    const employee = employees.find((item) => Number(item.intEmployeeBasicInfoId) === Number(salaryAssignForm.intEmployeeId));
+    const businessUnitId = salaryAssignForm.intBusinessUnitId || employee?.intBusinessUnitId;
     const errors = collectRequiredErrors([
-      { label: "Bonus name", value: bonusForm.strBonusSetupName?.trim() },
-      { label: "Business unit", value: bonusForm.intBusinessUnitId },
-      { label: "Percentage", value: bonusForm.numPercentage }
+      { label: "Employee", value: salaryAssignForm.intEmployeeId },
+      { label: "Business unit", value: businessUnitId },
+      { label: "Salary structure", value: salaryAssignForm.intPayrollGroupHeaderId },
+      { label: "Gross salary", value: salaryAssignForm.numGrossSalary }
     ]);
 
-    if (isBlank(bonusForm.intDepartmentId) && isBlank(bonusForm.intEmployementTypeId) && isBlank(bonusForm.intServiceLengthMonths)) {
-      errors.push("Department, employment type, or service months");
+    if (Number(salaryAssignForm.numGrossSalary || 0) <= 0) {
+      errors.push("Gross salary must be greater than 0");
     }
 
     if (errors.length > 0) {
-      setFormErrors((current) => ({ ...current, bonus: errors }));
+      setFormErrors((current) => ({ ...current, salaryAssign: errors }));
       return;
     }
 
-    setFormErrors((current) => ({ ...current, bonus: [] }));
-    const department = departments.find((item) => Number(item.intDepartmentId) === Number(bonusForm.intDepartmentId));
-    const employment = employmentTypes.find((item) => Number(item.intEmployementId) === Number(bonusForm.intEmployementTypeId));
-    const business = businessUnits.find((item) => Number(item.intBusinessUnitId) === Number(bonusForm.intBusinessUnitId));
+    setFormErrors((current) => ({ ...current, salaryAssign: [] }));
+    const payrollGroup = payrollGroups.find((item) => Number(item.intPayrollGroupHeaderId) === Number(salaryAssignForm.intPayrollGroupHeaderId));
     const payload = {
-      ...bonusForm,
-      intBonusSetypId: toNumber(bonusForm.intBonusSetypId),
-      intBusinessUnitId: toNumber(bonusForm.intBusinessUnitId),
-      intDepartmentId: toNullableNumber(bonusForm.intDepartmentId),
-      intEmployementTypeId: toNullableNumber(bonusForm.intEmployementTypeId),
-      intServiceLengthMonths: toNullableNumber(bonusForm.intServiceLengthMonths),
-      numPercentage: toNumber(bonusForm.numPercentage)
+      ...salaryAssignForm,
+      intSalaryAssignHeaderId: toNumber(salaryAssignForm.intSalaryAssignHeaderId),
+      intPayrollGroupHeaderId: toNumber(salaryAssignForm.intPayrollGroupHeaderId),
+      intEmployeeId: toNumber(salaryAssignForm.intEmployeeId),
+      intBusinessUnitId: toNumber(businessUnitId),
+      numGrossSalary: Number(salaryAssignForm.numGrossSalary || 0),
+      numNetGrossSalary: Number(salaryAssignForm.numNetGrossSalary || salaryAssignForm.numGrossSalary || 0),
+      intCreateBy: 1,
+      intUpdateBy: 1
     };
+
     try {
       if (!store.isDemoMode) {
-        await api("/Bonus/CreateNUpdateBonus", { method: "POST", body: JSON.stringify(payload) });
+        await api("/Salary/SalaryAssign", { method: "POST", body: JSON.stringify(payload) });
         await store.reload();
       } else {
         store.localUpsert(
-          "bonuses",
+          "salaryDetails",
           {
             ...payload,
-            strBusinessUnitName: business?.strBusinessUnitName || "",
-            strDepartmentName: department?.strDepartmentName || "",
-            strEmployementType: employment?.strEmployementName || "",
-            isACTIVE: true
+            strEmployeeName: employee?.strEmployeeName || "",
+            strBusinessUnitName: employee?.strBusinessUnitName || "",
+            strDepartmentName: employee?.strDepartmentName || "",
+            strDesignationName: employee?.strDesignationName || "",
+            intPayrollGroupHeader: payload.intPayrollGroupHeaderId,
+            strPayrollGroupHeader: payrollGroup?.strPayrollGroupHeaderTitle || ""
           },
-          "intBonusSetypId"
+          "intEmployeeId"
         );
       }
-      setBonusForm(emptyBonus);
-      store.setNotice("Bonus rule saved");
+      setSalaryAssignForm(emptySalaryAssign);
+      store.setNotice("Salary assigned");
     } catch (error) {
       store.setNotice(error.message);
     }
+  }
+
+  async function removeSalaryAssignment(id) {
+    try {
+      if (!store.isDemoMode) {
+        await api(`/Salary/DeleteSalaryAssign?salaryAssignHeaderId=${id}`, { method: "POST" });
+        await store.reload();
+      } else {
+        store.localDelete("salaryDetails", "intSalaryAssignHeaderId", id);
+      }
+      store.setNotice("Assigned salary removed");
+    } catch (error) {
+      store.setNotice(error.message);
+    }
+  }
+
+  async function saveAdjustment(event) {
+    event.preventDefault();
+    const isEditing = Number(adjustmentForm.intSalaryAdditionAndDeductionId || 0) > 0;
+    const isAllBusinessUnits = adjustmentForm.intBusinessUnitId === "all";
+    const isAllEmployees = adjustmentForm.intEmployeeId === "all";
+    const employee = isAllEmployees ? null : employees.find((item) => Number(item.intEmployeeBasicInfoId) === Number(adjustmentForm.intEmployeeId));
+    const errors = collectRequiredErrors([
+      { label: "Business unit", value: adjustmentForm.intBusinessUnitId },
+      { label: "Employee", value: adjustmentForm.intEmployeeId },
+      { label: "Type", value: adjustmentForm.intAdditionNdeductionTypeId },
+      { label: "Year", value: adjustmentForm.intYear },
+      { label: "Month", value: adjustmentForm.intMonth },
+      { label: "Amount", value: adjustmentForm.numAmount }
+    ]);
+
+    if (!isAllEmployees && !employee) {
+      errors.push("Employee");
+    }
+
+    if (Number(adjustmentForm.numAmount || 0) <= 0) {
+      errors.push("Amount must be greater than 0");
+    }
+
+    if (errors.length > 0) {
+      setFormErrors((current) => ({ ...current, adjustment: errors }));
+      return;
+    }
+
+    setFormErrors((current) => ({ ...current, adjustment: [] }));
+    const assignedEmployeeIds = new Set(salaryDetails.map((salary) => Number(salary.intEmployeeId)));
+    const targetEmployees = isEditing || !isAllEmployees
+      ? [employee].filter(Boolean)
+      : employees.filter((item) => assignedEmployeeIds.has(Number(item.intEmployeeBasicInfoId))
+        && (isAllBusinessUnits || Number(item.intBusinessUnitId) === Number(adjustmentForm.intBusinessUnitId)));
+
+    if (targetEmployees.length === 0) {
+      setFormErrors((current) => ({ ...current, adjustment: ["No assigned employees found for this selection"] }));
+      return;
+    }
+
+    try {
+      if (!store.isDemoMode) {
+        await Promise.all(targetEmployees.map((targetEmployee) => api("/Salary/CreateSalaryAdditionNDecduction", {
+          method: "POST",
+          body: JSON.stringify({
+            intSalaryAdditionAndDeductionId: isEditing ? toNumber(adjustmentForm.intSalaryAdditionAndDeductionId) : 0,
+            intBusinessUnitId: toNumber(targetEmployee.intBusinessUnitId),
+            intEmployeeId: toNumber(targetEmployee.intEmployeeBasicInfoId),
+            intYear: toNumber(adjustmentForm.intYear),
+            intMonth: toNumber(adjustmentForm.intMonth),
+            intAdditionNdeductionTypeId: toNumber(adjustmentForm.intAdditionNdeductionTypeId),
+            numAmount: Number(adjustmentForm.numAmount || 0),
+            isAddition: Boolean(adjustmentForm.isAddition),
+            isDeduction: Boolean(adjustmentForm.isDeduction),
+            intCreatedBy: 1,
+            intUpdatedBy: 1
+          })
+        })));
+        await store.reload();
+      } else {
+        targetEmployees.forEach((targetEmployee) => {
+          store.localUpsert(
+            "salaryAdjustments",
+            {
+              intSalaryAdditionAndDeductionId: isEditing ? adjustmentForm.intSalaryAdditionAndDeductionId : 0,
+              intBusinessUnitId: targetEmployee.intBusinessUnitId,
+              strBusinessUnitName: targetEmployee.strBusinessUnitName || "",
+              intEmployeeId: targetEmployee.intEmployeeBasicInfoId,
+              strEmployeeName: targetEmployee.strEmployeeName || "",
+              intYear: toNumber(adjustmentForm.intYear),
+              intMonth: toNumber(adjustmentForm.intMonth),
+              intAdditionNdeductionTypeId: toNumber(adjustmentForm.intAdditionNdeductionTypeId),
+              numAmount: Number(adjustmentForm.numAmount || 0),
+              isAddition: Boolean(adjustmentForm.isAddition),
+              isDeduction: Boolean(adjustmentForm.isDeduction)
+            },
+            "intSalaryAdditionAndDeductionId"
+          );
+        });
+      }
+      setAdjustmentForm(emptyAdjustment);
+      store.setNotice("Salary adjustment saved");
+    } catch (error) {
+      store.setNotice(error.message);
+    }
+  }
+
+  async function removeAdjustment(id) {
+    try {
+      if (!store.isDemoMode) {
+        await api(`/Salary/DeleteSalaryAdjustment?adjustmentId=${id}`, { method: "POST" });
+        await store.reload();
+      } else {
+        store.localDelete("salaryAdjustments", "intSalaryAdditionAndDeductionId", id);
+      }
+      store.setNotice("Salary adjustment removed");
+    } catch (error) {
+      store.setNotice(error.message);
+    }
+  }
+
+  async function generateSalary(year, month) {
+    try {
+      const generated = store.isDemoMode
+        ? businessUnits.map((unit) => {
+            const unitDetails = salaryDetails.filter((salary) => Number(salary.intBusinessUnitId) === Number(unit.intBusinessUnitId));
+            const unitAdjustments = salaryAdjustments.filter((adjustment) => Number(adjustment.intBusinessUnitId) === Number(unit.intBusinessUnitId) && Number(adjustment.intYear) === Number(year) && Number(adjustment.intMonth) === Number(month));
+            const additions = unitAdjustments.filter((adjustment) => adjustment.isAddition).reduce((sum, adjustment) => sum + Number(adjustment.numAmount || 0), 0);
+            const deductions = unitAdjustments.filter((adjustment) => adjustment.isDeduction).reduce((sum, adjustment) => sum + Number(adjustment.numAmount || 0), 0);
+            return {
+              intBusinessUnitId: unit.intBusinessUnitId,
+              strBusinessUnitName: unit.strBusinessUnitName,
+              intTotalEmployee: unitDetails.length,
+              numTotalPaybleSalary: unitDetails.reduce((sum, salary) => sum + Number(salary.numGrossSalary || 0), 0) + additions - deductions
+            };
+          })
+        : await api(`/Salary/SalaryGenerate?intYearId=${year}&intMonthId=${month}`, { method: "POST" });
+      store.localReplace("salaryGeneration", generated);
+      store.setNotice("Salary summary generated");
+    } catch (error) {
+      store.setNotice(error.message);
+    }
+  }
+
+  function removeGeneratedSalary(index) {
+    store.localReplace("salaryGeneration", salaryGeneration.filter((_, rowIndex) => rowIndex !== index));
+    store.setNotice("Generated salary removed from this run");
   }
 
   async function saveTransfer(event) {
@@ -855,7 +1129,7 @@ function App() {
             <button className="icon-button" onClick={store.reload} type="button" title="Refresh data">
               <CalendarClock size={18} />
             </button>
-            <button className="icon-button" onClick={logout} type="button" title="Sign out">
+            <button className="icon-button" onClick={() => logout()} type="button" title="Sign out">
               <LogOut size={18} />
             </button>
           </div>
@@ -865,9 +1139,7 @@ function App() {
           <Dashboard
             activeCount={activeCount}
             totalSalary={totalSalary}
-            payrollPolicies={payrollPolicies}
-            payrollElements={payrollElements}
-            bonuses={bonuses}
+            payrollGroups={payrollGroups}
             employees={filteredEmployees}
             setActive={setActive}
           />
@@ -922,36 +1194,42 @@ function App() {
 
         {active === "payroll" && (
           <PayrollView
-            businessUnits={businessUnits}
-            policies={payrollPolicies}
-            elements={payrollElements}
-            policyForm={policyForm}
-            setPolicyForm={setPolicyForm}
-            elementForm={elementForm}
-            setElementForm={setElementForm}
-            policyErrors={formErrors.policy}
-            elementErrors={formErrors.element}
-            savePolicy={savePolicy}
-            saveElement={saveElement}
-            removePolicy={removePolicy}
-            removeElement={removeElement}
+            salaryGeneration={salaryGeneration}
+            generateSalary={generateSalary}
+            removeGeneratedSalary={removeGeneratedSalary}
           />
         )}
 
         {active === "salary" && (
-          <SalaryView salaryDetails={salaryDetails} totalSalary={totalSalary} employees={employees} businessUnitSummary={businessUnitSummary} />
-        )}
-
-        {active === "bonus" && (
-          <BonusView
-            bonuses={bonuses}
-            bonusForm={bonusForm}
-            setBonusForm={setBonusForm}
-            errors={formErrors.bonus}
-            saveBonus={saveBonus}
+          <SalaryView
             businessUnits={businessUnits}
-            departments={departments}
-            employmentTypes={employmentTypes}
+            payrollGroups={payrollGroups}
+            payrollGroupRows={payrollGroupRows}
+            payrollGroupForm={payrollGroupForm}
+            setPayrollGroupForm={setPayrollGroupForm}
+            payrollGroupErrors={formErrors.payrollGroup}
+            savePayrollGroup={savePayrollGroup}
+            editPayrollGroup={editPayrollGroup}
+            removePayrollGroup={removePayrollGroup}
+            updatePayrollGroupRow={updatePayrollGroupRow}
+            addPayrollGroupRow={addPayrollGroupRow}
+            removePayrollGroupRow={removePayrollGroupRow}
+            salaryDetails={salaryDetails}
+            salaryCandidates={salaryCandidates}
+            salaryAssignForm={salaryAssignForm}
+            setSalaryAssignForm={setSalaryAssignForm}
+            salaryAssignErrors={formErrors.salaryAssign}
+            saveSalaryAssignment={saveSalaryAssignment}
+            adjustmentForm={adjustmentForm}
+            setAdjustmentForm={setAdjustmentForm}
+            adjustmentErrors={formErrors.adjustment}
+            saveAdjustment={saveAdjustment}
+            totalSalary={totalSalary}
+            employees={employees}
+            salaryAdjustments={salaryAdjustments}
+            removeSalaryAssignment={removeSalaryAssignment}
+            removeAdjustment={removeAdjustment}
+            businessUnitSummary={businessUnitSummary}
           />
         )}
       </main>
@@ -1039,14 +1317,13 @@ function AuthView({ onAuthenticate }) {
   );
 }
 
-function Dashboard({ activeCount, totalSalary, payrollPolicies, payrollElements, bonuses, employees, setActive }) {
+function Dashboard({ activeCount, totalSalary, payrollGroups, employees, setActive }) {
   const recent = employees.slice(0, 4);
   return (
     <section className="screen-grid dashboard-grid">
       <Metric icon={UsersRound} label="Active employees" value={activeCount} tone="green" />
       <Metric icon={CircleDollarSign} label="Assigned salary" value={`$${totalSalary.toLocaleString()}`} tone="blue" />
-      <Metric icon={ClipboardList} label="Payroll policies" value={payrollPolicies.length} tone="amber" />
-      <Metric icon={Gift} label="Bonus rules" value={bonuses.length} tone="rose" />
+      <Metric icon={ClipboardList} label="Salary structures" value={payrollGroups.length} tone="amber" />
 
       <section className="workspace-band dashboard-flow">
         <div className="section-heading">
@@ -1060,8 +1337,8 @@ function Dashboard({ activeCount, totalSalary, payrollPolicies, payrollElements,
             ["Setup", "Business units and master data", Building2, "setup"],
             ["Employees", "Employee records and search", UserRound, "employees"],
             ["Transfer", "Movement and promotion history", ArrowRightLeft, "movement"],
-            ["Payroll", "Policies and salary elements", WalletCards, "payroll"],
-            ["Salary", "Gross salary overview", Banknote, "salary"]
+            ["Salary", "Structures, assignments, adjustments", Banknote, "salary"],
+            ["Payroll", "Generate monthly payable summary", WalletCards, "payroll"]
           ].map(([title, detail, Icon, target]) => (
             <button className="lane-step" key={title} onClick={() => setActive(target)} type="button">
               <Icon size={20} />
@@ -1322,147 +1599,315 @@ function SetupView({ setupDraft, setSetupDraft, setupEdit, saveSetup, editSetup,
   );
 }
 
-function PayrollView(props) {
-  return (
-    <section className="screen-grid two-column">
-      <section className="workspace-band form-panel">
-        <form onSubmit={props.savePolicy} noValidate>
-          <FormTitle icon={ClipboardList} title={props.policyForm.intPayrollPolicyId ? "Edit policy" : "Payroll policy"} />
-          <ValidationSummary errors={props.policyErrors} />
-          <div className="form-grid single">
-            <TextField label="Policy name" value={props.policyForm.strPayrollPolicyName} onChange={(value) => props.setPolicyForm({ ...props.policyForm, strPayrollPolicyName: value })} required />
-            <SelectField label="Business unit" value={props.policyForm.intBusinessUnitId} onChange={(value) => props.setPolicyForm({ ...props.policyForm, intBusinessUnitId: value })} options={props.businessUnits.map((item) => [item.intBusinessUnitId, item.strBusinessUnitName])} required />
-            <TextField type="number" label="Salary days" value={props.policyForm.intGrossSalaryDevidedByDays} onChange={(value) => props.setPolicyForm({ ...props.policyForm, intGrossSalaryDevidedByDays: value })} required />
-          </div>
-          <div className="form-actions"><button className="primary-button" type="submit"><Plus size={17} /> Save policy</button></div>
-        </form>
+function SalaryView(props) {
+  const [salaryTab, setSalaryTab] = useState("structure");
+  const [structureSearch, setStructureSearch] = useState("");
+  const [salarySearch, setSalarySearch] = useState("");
+  const [adjustmentSearch, setAdjustmentSearch] = useState("");
+  const totalPercent = props.payrollGroupForm.payrollGroupRowList.reduce((sum, row) => sum + Number(row.numNumberOfPercent || 0), 0);
+  const assignableEmployees = [
+    ...props.salaryCandidates,
+    ...props.salaryDetails.map((salary) => ({
+      intEmployeeId: salary.intEmployeeId,
+      intBusinessUnitId: salary.intBusinessUnitId,
+      strEmployeeName: salary.strEmployeeName,
+      strBusinessUnitName: salary.strBusinessUnitName,
+      strDepartmentName: salary.strDepartmentName,
+      strDesignationName: salary.strDesignationName
+    }))
+  ];
+  const assignedEmployeeIds = new Set(props.salaryDetails.map((salary) => Number(salary.intEmployeeId)));
+  const adjustmentEmployees = props.employees.filter((employee) => assignedEmployeeIds.has(Number(employee.intEmployeeBasicInfoId)));
+  const salaryTerm = salarySearch.trim().toLowerCase();
+  const structureTerm = structureSearch.trim().toLowerCase();
+  const adjustmentTerm = adjustmentSearch.trim().toLowerCase();
+  const structureRows = structureTerm
+    ? props.payrollGroups.filter((group) => [
+        group.strPayrollGroupHeaderTitle,
+        group.strBusinessUnitName,
+        (props.payrollGroupRows[group.intPayrollGroupHeaderId] || []).map((row) => `${row.strPayrollElementName} ${row.numNumberOfPercent}%`).join(" ")
+      ].join(" ").toLowerCase().includes(structureTerm))
+    : props.payrollGroups;
+  const salaryRows = salaryTerm
+    ? props.salaryDetails.filter((salary) => [salary.strEmployeeName, salary.strBusinessUnitName, salary.strDepartmentName, salary.strDesignationName, salary.strPayrollGroupHeader].join(" ").toLowerCase().includes(salaryTerm))
+    : props.salaryDetails;
+  const adjustmentRows = adjustmentTerm
+    ? props.salaryAdjustments.filter((adjustment) => [adjustment.strEmployeeName, adjustment.strBusinessUnitName, adjustment.intYear, adjustment.intMonth, adjustmentTypes.find(([id]) => Number(id) === Number(adjustment.intAdditionNdeductionTypeId))?.[1]].join(" ").toLowerCase().includes(adjustmentTerm))
+    : props.salaryAdjustments;
 
-        <form onSubmit={props.saveElement} className="stacked-form" noValidate>
-          <FormTitle icon={WalletCards} title={props.elementForm.intPayrollElementId ? "Edit element" : "Payroll element"} />
-          <ValidationSummary errors={props.elementErrors} />
-          <div className="form-grid single">
-            <TextField label="Element name" value={props.elementForm.strPayrollElementName} onChange={(value) => props.setElementForm({ ...props.elementForm, strPayrollElementName: value })} required />
-            <SelectField label="Business unit" value={props.elementForm.intBusinessUnitId} onChange={(value) => props.setElementForm({ ...props.elementForm, intBusinessUnitId: value })} options={props.businessUnits.map((item) => [item.intBusinessUnitId, item.strBusinessUnitName])} required />
-            <label className="toggle-line"><input type="checkbox" checked={props.elementForm.isSalaryElement} onChange={(event) => props.setElementForm({ ...props.elementForm, isSalaryElement: event.target.checked })} /> Salary element</label>
-            <label className="toggle-line"><input type="checkbox" checked={props.elementForm.isBasicElement} onChange={(event) => props.setElementForm({ ...props.elementForm, isBasicElement: event.target.checked })} /> Addition/deduction element</label>
-          </div>
-          <div className="form-actions"><button className="primary-button" type="submit"><Plus size={17} /> Save element</button></div>
-        </form>
-      </section>
-
-      <section className="workspace-band table-panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Rules</p>
-            <h2>Payroll configuration</h2>
-          </div>
-        </div>
-        <DataTable
-          columns={["Policy", "Business unit", "Days", "Actions"]}
-          rows={props.policies.map((policy) => [
-            policy.strPayrollPolicyName,
-            policy.strBusinessUnitName,
-            policy.intGrossSalaryDevidedByDays || "Actual",
-            <ActionSet
-              key={policy.intPayrollPolicyId}
-              onEdit={() => props.setPolicyForm({ ...emptyPolicy, ...policy, intBusinessUnitId: policy.intBusinessUnitId || "" })}
-              onDelete={() => props.removePolicy(policy.intPayrollPolicyId)}
-            />
-          ])}
-        />
-        <DataTable
-          columns={["Element", "Business unit", "Type", "Actions"]}
-          rows={props.elements.map((element) => [
-            element.strPayrollElementName,
-            element.strBusinessUnitName,
-            element.isSalaryElement ? "Salary" : "Basic",
-            <ActionSet
-              key={element.intPayrollElementId}
-              onEdit={() => props.setElementForm({ ...emptyElement, ...element, intBusinessUnitId: element.intBusinessUnitId || "" })}
-              onDelete={() => props.removeElement(element.intPayrollElementId)}
-            />
-          ])}
-        />
-      </section>
-    </section>
-  );
-}
-
-function SalaryView({ salaryDetails, totalSalary, employees, businessUnitSummary }) {
-  async function generateSalary() {
-    try {
-      await api(`/Salary/SalaryGenerate?intYearId=${new Date().getFullYear()}&intMonthId=${new Date().getMonth() + 1}`, { method: "POST" });
-    } catch {
-      return null;
-    }
-    return null;
+  function selectAssignEmployee(employeeId) {
+    const employee = assignableEmployees.find((item) => Number(item.intEmployeeId) === Number(employeeId));
+    props.setSalaryAssignForm({ ...props.salaryAssignForm, intEmployeeId: employeeId, intBusinessUnitId: employee?.intBusinessUnitId || "" });
   }
 
+  function selectAdjustmentEmployee(employeeId) {
+    if (employeeId === "all") {
+      props.setAdjustmentForm({ ...props.adjustmentForm, intEmployeeId: "all" });
+      return;
+    }
+    const employee = adjustmentEmployees.find((item) => Number(item.intEmployeeBasicInfoId) === Number(employeeId));
+    props.setAdjustmentForm({ ...props.adjustmentForm, intEmployeeId: employeeId, intBusinessUnitId: employee?.intBusinessUnitId || props.adjustmentForm.intBusinessUnitId });
+  }
+
+  function selectAdjustmentBusinessUnit(businessUnitId) {
+    if (businessUnitId === "") {
+      props.setAdjustmentForm({ ...props.adjustmentForm, intBusinessUnitId: "", intEmployeeId: "" });
+      return;
+    }
+    const selectedEmployee = adjustmentEmployees.find((item) => Number(item.intEmployeeBasicInfoId) === Number(props.adjustmentForm.intEmployeeId));
+    const keepEmployee = props.adjustmentForm.intEmployeeId === "" || props.adjustmentForm.intEmployeeId === "all" || businessUnitId === "all" || Number(selectedEmployee?.intBusinessUnitId) === Number(businessUnitId);
+    props.setAdjustmentForm({
+      ...props.adjustmentForm,
+      intBusinessUnitId: businessUnitId,
+      intEmployeeId: keepEmployee ? props.adjustmentForm.intEmployeeId : "all"
+    });
+  }
+
+  const filteredAdjustmentEmployees = props.adjustmentForm.intBusinessUnitId === "all" || props.adjustmentForm.intBusinessUnitId === ""
+    ? adjustmentEmployees
+    : adjustmentEmployees.filter((employee) => Number(employee.intBusinessUnitId) === Number(props.adjustmentForm.intBusinessUnitId));
+
   return (
-    <section className="screen-grid">
+    <section className="screen-grid salary-grid">
       <div className="metrics-row">
-        <Metric icon={Banknote} label="Gross salary" value={`$${totalSalary.toLocaleString()}`} tone="green" />
-        <Metric icon={UsersRound} label="Employees tracked" value={employees.length} tone="blue" />
-        <Metric icon={Building2} label="Business units" value={businessUnitSummary} tone="amber" />
+        <Metric icon={Banknote} label="Gross salary" value={`$${props.totalSalary.toLocaleString()}`} tone="green" />
+        <Metric icon={UsersRound} label="Employees tracked" value={props.employees.length} tone="blue" />
+        <Metric icon={Building2} label="Business units" value={props.businessUnitSummary} tone="amber" />
       </div>
-      <section className="workspace-band table-panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Salary desk</p>
-            <h2>Assigned salary details</h2>
-          </div>
-          <button className="primary-button" type="button" onClick={generateSalary}><Banknote size={17} /> Generate</button>
+
+      <section className="salary-subnav salary-wide">
+        <div className="module-tabs" role="tablist" aria-label="Salary sections">
+          {[
+            ["structure", "Structure", WalletCards],
+            ["assign", "Assign", BadgeDollarSign],
+            ["adjustments", "Adjustments", CircleDollarSign]
+          ].map(([id, label, Icon]) => (
+            <button className={salaryTab === id ? "active" : ""} type="button" key={id} onClick={() => setSalaryTab(id)}>
+              <Icon size={17} /> {label}
+            </button>
+          ))}
         </div>
-        <DataTable
-          columns={["Employee", "Department", "Designation", "Group", "Gross salary"]}
-          rows={salaryDetails.map((salary) => [
-            salary.strEmployeeName,
-            salary.strDepartmentName,
-            salary.strDesignationName,
-            salary.strPayrollGroupHeader,
-            `$${Number(salary.numGrossSalary || 0).toLocaleString()}`
-          ])}
-        />
       </section>
+
+      {salaryTab === "structure" && (
+        <section className="salary-segment salary-wide">
+          <section className="workspace-band form-panel">
+            <form onSubmit={props.savePayrollGroup} noValidate>
+              <FormTitle icon={WalletCards} title={props.payrollGroupForm.intPayrollGroupHeaderId ? "Edit salary structure" : "Salary structure"} />
+              <ValidationSummary errors={props.payrollGroupErrors} />
+              <div className="form-grid">
+                <TextField label="Structure title" value={props.payrollGroupForm.strPayrollGroupHeaderTitle} onChange={(value) => props.setPayrollGroupForm({ ...props.payrollGroupForm, strPayrollGroupHeaderTitle: value })} required />
+                <SelectField
+                  label="Business unit"
+                  value={props.payrollGroupForm.intBusinessUnitId}
+                  onChange={(value) => props.setPayrollGroupForm({ ...props.payrollGroupForm, intBusinessUnitId: value })}
+                  options={props.businessUnits.map((item) => [item.intBusinessUnitId, item.strBusinessUnitName])}
+                  required
+                />
+                <ReadOnlyField label="Component total" value={`${totalPercent}%`} />
+              </div>
+              <div className="structure-list">
+                {props.payrollGroupForm.payrollGroupRowList.map((row, index) => (
+                  <div className="structure-row" key={`${index}-${row.intPayrollElementTypeId}`}>
+                    <TextField label="Component" value={row.strPayrollElementName} onChange={(value) => props.updatePayrollGroupRow(index, "strPayrollElementName", value)} required />
+                    <TextField type="number" label="Percent" value={row.numNumberOfPercent} onChange={(value) => props.updatePayrollGroupRow(index, "numNumberOfPercent", value)} required />
+                    <button className="icon-button danger" type="button" onClick={() => props.removePayrollGroupRow(index)} title="Remove component">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="form-actions">
+                <button className="ghost-button" type="button" onClick={props.addPayrollGroupRow}><Plus size={17} /> Add component</button>
+                <button className="ghost-button" type="button" onClick={() => props.setPayrollGroupForm(emptyPayrollGroup)}><X size={17} /> Clear</button>
+                <button className="primary-button" type="submit"><Check size={17} /> Save structure</button>
+              </div>
+            </form>
+          </section>
+
+          <section className="workspace-band table-panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Salary structures</p>
+                <h2>Component groups</h2>
+              </div>
+              <label className="search-box">
+                <Search size={17} />
+                <input value={structureSearch} onChange={(event) => setStructureSearch(event.target.value)} placeholder="Search structures" />
+              </label>
+            </div>
+            <DataTable
+              columns={["Structure", "Business unit", "Components", "Actions"]}
+              rows={structureRows.map((group) => [
+                group.strPayrollGroupHeaderTitle,
+                group.strBusinessUnitName,
+                (props.payrollGroupRows[group.intPayrollGroupHeaderId] || []).map((row) => `${row.strPayrollElementName} ${row.numNumberOfPercent}%`).join(", "),
+                <ActionSet key={group.intPayrollGroupHeaderId} onEdit={() => props.editPayrollGroup(group)} onDelete={() => props.removePayrollGroup(group.intPayrollGroupHeaderId)} />
+              ])}
+            />
+          </section>
+        </section>
+      )}
+
+      {salaryTab === "assign" && (
+        <section className="salary-segment salary-wide">
+          <section className="workspace-band form-panel">
+            <form onSubmit={props.saveSalaryAssignment} noValidate>
+              <FormTitle icon={BadgeDollarSign} title={props.salaryAssignForm.intSalaryAssignHeaderId ? "Edit salary" : "Assign salary"} />
+              <ValidationSummary errors={props.salaryAssignErrors} />
+              <div className="form-grid">
+                <SelectField label="Employee" value={props.salaryAssignForm.intEmployeeId} onChange={selectAssignEmployee} options={assignableEmployees.map((item) => [item.intEmployeeId, item.strEmployeeName])} required />
+                <SelectField label="Business unit" value={props.salaryAssignForm.intBusinessUnitId} onChange={(value) => props.setSalaryAssignForm({ ...props.salaryAssignForm, intBusinessUnitId: value, intPayrollGroupHeaderId: "" })} options={props.businessUnits.map((item) => [item.intBusinessUnitId, item.strBusinessUnitName])} required />
+                <SelectField label="Salary structure" value={props.salaryAssignForm.intPayrollGroupHeaderId} onChange={(value) => props.setSalaryAssignForm({ ...props.salaryAssignForm, intPayrollGroupHeaderId: value })} options={props.payrollGroups.filter((group) => Number(group.intBusinessUnitId) === Number(props.salaryAssignForm.intBusinessUnitId)).map((group) => [group.intPayrollGroupHeaderId, group.strPayrollGroupHeaderTitle])} required />
+                <TextField type="number" label="Gross salary" value={props.salaryAssignForm.numGrossSalary} onChange={(value) => props.setSalaryAssignForm({ ...props.salaryAssignForm, numGrossSalary: value, numNetGrossSalary: value })} required />
+              </div>
+              <div className="form-actions">
+                <button className="primary-button" type="submit"><Plus size={17} /> Save salary</button>
+                <button className="ghost-button" type="button" onClick={() => props.setSalaryAssignForm(emptySalaryAssign)}><X size={17} /> Clear</button>
+              </div>
+            </form>
+          </section>
+
+          <section className="workspace-band table-panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Salary desk</p>
+                <h2>Assigned salary details</h2>
+              </div>
+              <label className="search-box">
+                <Search size={17} />
+                <input value={salarySearch} onChange={(event) => setSalarySearch(event.target.value)} placeholder="Search assigned salary" />
+              </label>
+            </div>
+            <DataTable
+              columns={["Employee", "Department", "Designation", "Structure", "Gross salary", "Actions"]}
+              rows={salaryRows.map((salary) => [
+                salary.strEmployeeName,
+                salary.strDepartmentName,
+                salary.strDesignationName,
+                salary.strPayrollGroupHeader,
+                `$${Number(salary.numGrossSalary || 0).toLocaleString()}`,
+                <ActionSet
+                  key={salary.intEmployeeId}
+                  onEdit={() => props.setSalaryAssignForm({
+                    ...emptySalaryAssign,
+                    intSalaryAssignHeaderId: salary.intSalaryAssignHeaderId || 0,
+                    intEmployeeId: salary.intEmployeeId,
+                    intBusinessUnitId: salary.intBusinessUnitId,
+                    intPayrollGroupHeaderId: salary.intPayrollGroupHeader,
+                    numGrossSalary: salary.numGrossSalary,
+                    numNetGrossSalary: salary.numNetGrossSalary || salary.numGrossSalary
+                  })}
+                  onDelete={() => props.removeSalaryAssignment(salary.intSalaryAssignHeaderId)}
+                />
+              ])}
+            />
+          </section>
+        </section>
+      )}
+
+      {salaryTab === "adjustments" && (
+        <section className="salary-segment salary-wide">
+          <section className="workspace-band form-panel">
+            <form onSubmit={props.saveAdjustment} noValidate>
+              <FormTitle icon={CircleDollarSign} title={props.adjustmentForm.intSalaryAdditionAndDeductionId ? "Edit adjustment" : "Monthly adjustment"} />
+              <ValidationSummary errors={props.adjustmentErrors} />
+              <div className="movement-choice compact">
+                <label className={props.adjustmentForm.isAddition ? "choice-card active" : "choice-card"}>
+                  <input type="radio" checked={props.adjustmentForm.isAddition} onChange={() => props.setAdjustmentForm({ ...props.adjustmentForm, isAddition: true, isDeduction: false })} />
+                  <Plus size={18} />
+                  <span><strong>Addition</strong><small>Allowance, overtime or one-time payment.</small></span>
+                </label>
+                <label className={props.adjustmentForm.isDeduction ? "choice-card active" : "choice-card"}>
+                  <input type="radio" checked={props.adjustmentForm.isDeduction} onChange={() => props.setAdjustmentForm({ ...props.adjustmentForm, isAddition: false, isDeduction: true })} />
+                  <Trash2 size={18} />
+                  <span><strong>Deduction</strong><small>Tax, advance or penalty.</small></span>
+                </label>
+              </div>
+              <div className="form-grid">
+                <SelectField label="Business unit" value={props.adjustmentForm.intBusinessUnitId} onChange={selectAdjustmentBusinessUnit} options={[["all", "All Business Units"], ...props.businessUnits.map((item) => [item.intBusinessUnitId, item.strBusinessUnitName])]} required />
+                <SelectField label="Employee" value={props.adjustmentForm.intEmployeeId} onChange={selectAdjustmentEmployee} options={[["all", "All Employees"], ...filteredAdjustmentEmployees.map((item) => [item.intEmployeeBasicInfoId, item.strEmployeeName])]} required />
+                <SelectField label="Type" value={props.adjustmentForm.intAdditionNdeductionTypeId} onChange={(value) => props.setAdjustmentForm({ ...props.adjustmentForm, intAdditionNdeductionTypeId: value })} options={adjustmentTypes} required />
+                <TextField type="number" label="Amount" value={props.adjustmentForm.numAmount} onChange={(value) => props.setAdjustmentForm({ ...props.adjustmentForm, numAmount: value })} required />
+                <TextField type="number" label="Year" value={props.adjustmentForm.intYear} onChange={(value) => props.setAdjustmentForm({ ...props.adjustmentForm, intYear: value })} required />
+                <SelectField label="Month" value={props.adjustmentForm.intMonth} onChange={(value) => props.setAdjustmentForm({ ...props.adjustmentForm, intMonth: value })} options={months} required />
+              </div>
+              <div className="form-actions">
+                <button className="primary-button" type="submit"><Check size={17} /> Save adjustment</button>
+                <button className="ghost-button" type="button" onClick={() => props.setAdjustmentForm(emptyAdjustment)}><X size={17} /> Clear</button>
+              </div>
+            </form>
+          </section>
+
+          <section className="workspace-band table-panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Adjustments</p>
+                <h2>Additions and deductions</h2>
+              </div>
+              <label className="search-box">
+                <Search size={17} />
+                <input value={adjustmentSearch} onChange={(event) => setAdjustmentSearch(event.target.value)} placeholder="Search adjustments" />
+              </label>
+            </div>
+            <DataTable
+              columns={["Employee", "Business unit", "Period", "Type", "Direction", "Amount", "Actions"]}
+              rows={adjustmentRows.map((row) => [
+                row.strEmployeeName,
+                row.strBusinessUnitName,
+                `${months.find(([id]) => Number(id) === Number(row.intMonth))?.[1] || row.intMonth} ${row.intYear || ""}`,
+                adjustmentTypes.find(([id]) => Number(id) === Number(row.intAdditionNdeductionTypeId))?.[1] || "Adjustment",
+                row.isAddition ? "Addition" : "Deduction",
+                `$${Number(row.numAmount || 0).toLocaleString()}`,
+                <ActionSet
+                  key={row.intSalaryAdditionAndDeductionId}
+                  onEdit={() => props.setAdjustmentForm({
+                    ...emptyAdjustment,
+                    intSalaryAdditionAndDeductionId: row.intSalaryAdditionAndDeductionId,
+                    intBusinessUnitId: row.intBusinessUnitId,
+                    intEmployeeId: row.intEmployeeId,
+                    intYear: row.intYear,
+                    intMonth: row.intMonth,
+                    intAdditionNdeductionTypeId: row.intAdditionNdeductionTypeId,
+                    numAmount: row.numAmount,
+                    isAddition: row.isAddition,
+                    isDeduction: row.isDeduction
+                  })}
+                  onDelete={() => props.removeAdjustment(row.intSalaryAdditionAndDeductionId)}
+                />
+              ])}
+            />
+          </section>
+        </section>
+      )}
     </section>
   );
 }
 
-function BonusView(props) {
-  return (
-    <section className="screen-grid two-column">
-      <form className="workspace-band form-panel" onSubmit={props.saveBonus} noValidate>
-        <FormTitle icon={Gift} title={props.bonusForm.intBonusSetypId ? "Edit bonus" : "Bonus setup"} />
-        <ValidationSummary errors={props.errors} />
-        <div className="form-grid">
-          <TextField label="Bonus name" value={props.bonusForm.strBonusSetupName} onChange={(value) => props.setBonusForm({ ...props.bonusForm, strBonusSetupName: value })} required />
-          <SelectField label="Business unit" value={props.bonusForm.intBusinessUnitId} onChange={(value) => props.setBonusForm({ ...props.bonusForm, intBusinessUnitId: value })} options={props.businessUnits.map((item) => [item.intBusinessUnitId, item.strBusinessUnitName])} required />
-          <SelectField label="Department" value={props.bonusForm.intDepartmentId} onChange={(value) => props.setBonusForm({ ...props.bonusForm, intDepartmentId: value })} options={props.departments.map((item) => [item.intDepartmentId, item.strDepartmentName])} />
-          <SelectField label="Employment type" value={props.bonusForm.intEmployementTypeId} onChange={(value) => props.setBonusForm({ ...props.bonusForm, intEmployementTypeId: value })} options={props.employmentTypes.map((item) => [item.intEmployementId, item.strEmployementName])} />
-          <TextField type="number" label="Service months" value={props.bonusForm.intServiceLengthMonths} onChange={(value) => props.setBonusForm({ ...props.bonusForm, intServiceLengthMonths: value })} />
-          <TextField type="number" label="Percentage" value={props.bonusForm.numPercentage} onChange={(value) => props.setBonusForm({ ...props.bonusForm, numPercentage: value })} required />
-        </div>
-        <div className="form-actions"><button className="primary-button" type="submit"><Gift size={17} /> Save bonus</button></div>
-      </form>
+function PayrollView(props) {
+  const [generatePeriod, setGeneratePeriod] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
 
-      <section className="workspace-band table-panel">
+  return (
+    <section className="screen-grid payroll-grid">
+      <section className="workspace-band table-panel salary-wide">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Eligibility</p>
-            <h2>Bonus rules</h2>
+            <p className="eyebrow">Payroll run</p>
+            <h2>Monthly payable summary</h2>
+          </div>
+          <div className="period-controls">
+            <TextField type="number" label="Year" value={generatePeriod.year} onChange={(value) => setGeneratePeriod({ ...generatePeriod, year: value })} />
+            <SelectField label="Month" value={generatePeriod.month} onChange={(value) => setGeneratePeriod({ ...generatePeriod, month: value })} options={months} />
+            <button className="primary-button" type="button" onClick={() => props.generateSalary(generatePeriod.year, generatePeriod.month)}><Banknote size={17} /> Generate</button>
           </div>
         </div>
         <DataTable
-          columns={["Name", "Department", "Type", "Service", "Percent", "Actions"]}
-          rows={props.bonuses.map((bonus) => [
-            bonus.strBonusSetupName,
-            bonus.strDepartmentName,
-            bonus.strEmployementType,
-            bonus.intServiceLengthMonths ? `${bonus.intServiceLengthMonths} months` : "Any",
-            `${bonus.numPercentage}%`,
-            <button className="icon-button" key={bonus.intBonusSetypId} type="button" title="Edit bonus" onClick={() => props.setBonusForm({ ...emptyBonus, ...bonus, intBusinessUnitId: bonus.intBusinessUnitId || "" })}>
-              <Edit3 size={17} />
-            </button>
+          columns={["Business unit", "Employees", "Payable salary", "Actions"]}
+          rows={props.salaryGeneration.map((row, index) => [
+            row.strBusinessUnitName,
+            row.intTotalEmployee,
+            `$${Number(row.numTotalPaybleSalary || row.numTotalPayableSalary || 0).toLocaleString()}`,
+            <ActionSet key={`${row.intBusinessUnitId}-${index}`} onDelete={() => props.removeGeneratedSalary(index)} />
           ])}
         />
       </section>
@@ -1558,8 +2003,8 @@ function DataTable({ columns, rows }) {
 function ActionSet({ onEdit, onDelete }) {
   return (
     <div className="action-set">
-      <button className="icon-button" type="button" title="Edit" onClick={onEdit}><Edit3 size={16} /></button>
-      <button className="icon-button danger" type="button" title="Delete" onClick={onDelete}><Trash2 size={16} /></button>
+      {onEdit && <button className="icon-button" type="button" title="Edit" onClick={onEdit}><Edit3 size={16} /></button>}
+      {onDelete && <button className="icon-button danger" type="button" title="Delete" onClick={onDelete}><Trash2 size={16} /></button>}
     </div>
   );
 }

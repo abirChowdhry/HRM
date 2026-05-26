@@ -27,6 +27,7 @@ namespace HRM.DTOs
     public class PayrollPolicyLanding 
     {
         public long IntPayrollPolicyId { get; set; }
+        public long IntBusinessUnitId { get; set; }
         public string StrBusinessUnitName { get; set; }
         public string StrPayrollPolicyName { get; set; }
         public bool? IsSalaryDivideByActualMonthDays { get; set; }
@@ -92,6 +93,8 @@ namespace HRM.DTOs
     {
         public long IntPayrollGroupHeaderId { get; set; }
         public string StrPayrollGroupHeaderTitle { get; set; }
+        public long IntBusinessUnitId { get; set; }
+        public long? IntPayrollPolicyId { get; set; }
         public string StrBusinessUnitName { get; set; }
         public string? StrPayrollPolicyName { get; set; }
         public bool IsActive { get; set; }

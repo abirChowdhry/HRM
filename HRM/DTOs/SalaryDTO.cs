@@ -9,6 +9,7 @@ namespace HRM.DTOs
     public class SalaryAssignLanding 
     {
         public long IntEmployeeId { get; set; }
+        public long IntBusinessUnitId { get; set; }
         public string StrBusinessUnitName { get; set; }
         public string StrEmployeeName { get; set; }
         public string StrDepartmentName { get; set;}
@@ -18,12 +19,15 @@ namespace HRM.DTOs
     
     public class SalaryDetailsLanding 
     {
+        public long IntSalaryAssignHeaderId { get; set; }
         public long IntEmployeeId { get; set; }
+        public long IntBusinessUnitId { get; set; }
         public string StrBusinessUnitName { get; set; }
         public string StrEmployeeName { get; set; }
         public string StrDepartmentName { get; set;}
         public string StrDesignationName { get; set;}
         public decimal NumGrossSalary { get; set;}
+        public decimal NumNetGrossSalary { get; set;}
         public long IntPayrollGroupHeader { get; set;}
         public string StrPayrollGroupHeader { get; set; }
 
@@ -54,6 +58,21 @@ namespace HRM.DTOs
         public decimal? NumAmount { get; set; }
         public long IntCreatedBy { get; set; }
         public long? IntUpdatedBy { get; set; }
+    }
+
+    public class SalaryAdjustmentLanding
+    {
+        public long IntSalaryAdditionAndDeductionId { get; set; }
+        public long IntBusinessUnitId { get; set; }
+        public string StrBusinessUnitName { get; set; }
+        public long IntEmployeeId { get; set; }
+        public string StrEmployeeName { get; set; }
+        public long? IntYear { get; set; }
+        public long? IntMonth { get; set; }
+        public bool? IsAddition { get; set; }
+        public bool? IsDeduction { get; set; }
+        public long? IntAdditionNdeductionTypeId { get; set; }
+        public decimal? NumAmount { get; set; }
     }
 
     public class EmpSalAddNDeductionVM 

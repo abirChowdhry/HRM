@@ -139,6 +139,7 @@ namespace HRM.Services
                                                                   select new PayrollPolicyLanding
                                                                   {
                                                                     IntPayrollPolicyId = payroll.IntPayrollPolicyId,
+                                                                    IntBusinessUnitId = payroll.IntBusinessUnitId,
                                                                     StrPayrollPolicyName = payroll.StrPayrollPolicyName,
                                                                     StrBusinessUnitName = business.StrBusinessUnitName,
                                                                     IsSalaryDivideByActualMonthDays = payroll.IsSalaryDivideByActualMonthDays,
@@ -149,9 +150,9 @@ namespace HRM.Services
                                                                     IsNetPayableSalaryRoundUp = payroll.IsNetPayableSalaryRoundUp,
                                                                     IsNetPayableSalaryRoundDown = payroll.IsNetPayableSalaryRoundDown,
                                                                     IntCreatedBy = payroll.IntCreatedBy,
-                                                                    StrCreatedAt = payroll.DteCreatedAt.Value.ToString("dd MMM yyyy"),
+                                                                    StrCreatedAt = payroll.DteCreatedAt.HasValue ? payroll.DteCreatedAt.Value.ToString("dd MMM yyyy") : "",
                                                                     IntUpdatedBy = payroll.IntUpdatedBy,
-                                                                    StrUpdatedBy = payroll.DteUpdatedAt.Value.ToString("dd MMM yyyy") ?? ""
+                                                                    StrUpdatedBy = payroll.DteUpdatedAt.HasValue ? payroll.DteUpdatedAt.Value.ToString("dd MMM yyyy") : ""
                                                                   }).OrderBy(x => x.IntPayrollPolicyId).AsNoTracking().AsQueryable();
 
                 return Task.FromResult(payrollPolicyLandings.ToList());
@@ -310,12 +311,8 @@ namespace HRM.Services
                 var data = await _context.payrollGroupHeaders.Where(x => x.IntPayrollGroupHeaderId == payrollGroupHeaderNRowCreateVM.IntPayrollGroupHeaderId).FirstOrDefaultAsync();
                 var businessUnit = await _context.businessUnits.Where(x => x.IntBusinessUnitId == payrollGroupHeaderNRowCreateVM.IntBusinessUnitId).FirstOrDefaultAsync();
                 var nameExst = await _context.payrollGroupHeaders.Where(x => x.StrPayrollGroupHeaderTitle == payrollGroupHeaderNRowCreateVM.StrPayrollGroupHeaderTitle).FirstOrDefaultAsync();
-                var policyExst = await _context.payrollPolicies.Where(x => x.IntPayrollPolicyId == payrollGroupHeaderNRowCreateVM.IntPayrollPolicyId && x.IntBusinessUnitId == payrollGroupHeaderNRowCreateVM.IntBusinessUnitId).FirstOrDefaultAsync();
 
-                //Payroll Element Type Check
-                var elementTypeIds = await _context.payrollElements.Where(x => x.IntBusinessUnitId == payrollGroupHeaderNRowCreateVM.IntBusinessUnitId && x.IsSalaryElement == true).Select(x => x.IntPayrollElementId).ToListAsync();
-
-                if (data == null && businessUnit != null && nameExst == null && policyExst != null)
+                if (data == null && businessUnit != null && nameExst == null)
                 {
                     PayrollGroupHeader payrollGroupHeader = new PayrollGroupHeader
                     {
@@ -332,35 +329,30 @@ namespace HRM.Services
                     await _context.SaveChangesAsync();
 
                     List<PayrollGroupRow> payrollGroupRows = new List<PayrollGroupRow>();
-                    bool check = true;
+                    long syntheticElementId = 1;
 
                     payrollGroupHeaderNRowCreateVM.payrollGroupRowList.ForEach(prg =>
                     {
-                        if (!elementTypeIds.Contains(prg.IntPayrollElementTypeId))
+                        payrollGroupRows.Add(new PayrollGroupRow
                         {
-                            check = false;
-                            return;
-                        }
-                            payrollGroupRows.Add(new PayrollGroupRow
-                            {
-                                IntPayrollGroupRowId = prg.IntPayrollGroupRowId,
-                                IntPayrollHeaderId = payrollGroupHeader.IntPayrollGroupHeaderId,
-                                IntPayrollElementTypeId = prg.IntPayrollElementTypeId,
-                                StrPayrollElementName = prg.StrPayrollElementName,
-                                NumNumberOfPercent = prg.NumNumberOfPercent,
-                                IsActive = true,
-                                DteCreatedAt = DateTime.Now,
-                                IntCreatedBy = payrollGroupHeaderNRowCreateVM.IntCreatedBy
-                            });
+                            IntPayrollGroupRowId = prg.IntPayrollGroupRowId,
+                            IntPayrollHeaderId = payrollGroupHeader.IntPayrollGroupHeaderId,
+                            IntPayrollElementTypeId = prg.IntPayrollElementTypeId > 0 ? prg.IntPayrollElementTypeId : syntheticElementId++,
+                            StrPayrollElementName = prg.StrPayrollElementName,
+                            NumNumberOfPercent = prg.NumNumberOfPercent,
+                            IsActive = true,
+                            DteCreatedAt = DateTime.Now,
+                            IntCreatedBy = payrollGroupHeaderNRowCreateVM.IntCreatedBy
+                        });
                     });
 
-
-                    if (check == true)
+                    if (payrollGroupRows.Count > 0)
                     {
                         if (payrollGroupRows.Select(x => x.NumNumberOfPercent).Sum() != 100) 
                         {
                             var header = _context.payrollGroupHeaders.Where(x => x.IntPayrollGroupHeaderId == payrollGroupHeader.IntPayrollGroupHeaderId).FirstOrDefault();
                             _context.payrollGroupHeaders.Remove(header);
+                            await _context.SaveChangesAsync();
                             return false;
                         }
 
@@ -371,6 +363,7 @@ namespace HRM.Services
 
                     var header2 = _context.payrollGroupHeaders.Where(x => x.IntPayrollGroupHeaderId == payrollGroupHeader.IntPayrollGroupHeaderId).FirstOrDefault();
                     _context.payrollGroupHeaders.Remove(header2);
+                    await _context.SaveChangesAsync();
                     return false;
                 }
                 return false;
@@ -381,9 +374,78 @@ namespace HRM.Services
             }
         }
 
-        public Task<bool> UpdatePayrollGroupHeaderNRow(PayrollGroupHeaderNRowCreateVM payrollGroupHeaderNRowCreateVM)
+        public async Task<bool> UpdatePayrollGroupHeaderNRow(PayrollGroupHeaderNRowCreateVM payrollGroupHeaderNRowCreateVM)
         {
-            throw new NotImplementedException();
+            try
+            {
+                PayrollGroupHeader payrollGroupHeader = await _context.payrollGroupHeaders
+                    .Where(x => x.IntPayrollGroupHeaderId == payrollGroupHeaderNRowCreateVM.IntPayrollGroupHeaderId && x.IsActive == true)
+                    .FirstOrDefaultAsync();
+                var businessUnit = await _context.businessUnits
+                    .Where(x => x.IntBusinessUnitId == payrollGroupHeaderNRowCreateVM.IntBusinessUnitId)
+                    .FirstOrDefaultAsync();
+                var nameExst = await _context.payrollGroupHeaders
+                    .Where(x => x.StrPayrollGroupHeaderTitle == payrollGroupHeaderNRowCreateVM.StrPayrollGroupHeaderTitle
+                        && x.IntPayrollGroupHeaderId != payrollGroupHeaderNRowCreateVM.IntPayrollGroupHeaderId
+                        && x.IsActive == true)
+                    .FirstOrDefaultAsync();
+
+                if (payrollGroupHeader == null || businessUnit == null || nameExst != null || payrollGroupHeaderNRowCreateVM.payrollGroupRowList == null)
+                {
+                    return false;
+                }
+
+                if (payrollGroupHeaderNRowCreateVM.payrollGroupRowList.Count == 0 || payrollGroupHeaderNRowCreateVM.payrollGroupRowList.Select(x => x.NumNumberOfPercent).Sum() != 100)
+                {
+                    return false;
+                }
+
+                payrollGroupHeader.StrPayrollGroupHeaderTitle = payrollGroupHeaderNRowCreateVM.StrPayrollGroupHeaderTitle;
+                payrollGroupHeader.IntBusinessUnitId = payrollGroupHeaderNRowCreateVM.IntBusinessUnitId;
+                payrollGroupHeader.IntPayrollPolicyId = payrollGroupHeaderNRowCreateVM.IntPayrollPolicyId;
+                payrollGroupHeader.DteUpdatedAt = DateTime.Now;
+                payrollGroupHeader.IntUpdatedBy = payrollGroupHeaderNRowCreateVM.IntUpdatedBy;
+
+                List<PayrollGroupRow> existingRows = await _context.payrollGroupRows
+                    .Where(x => x.IntPayrollHeaderId == payrollGroupHeader.IntPayrollGroupHeaderId)
+                    .ToListAsync();
+
+                foreach (var existingRow in existingRows)
+                {
+                    existingRow.IsActive = false;
+                    existingRow.DteUpdatedAt = DateTime.Now;
+                    existingRow.IntUpdatedBy = payrollGroupHeaderNRowCreateVM.IntUpdatedBy;
+                }
+
+                List<PayrollGroupRow> payrollGroupRows = new List<PayrollGroupRow>();
+                long syntheticElementId = 1;
+
+                payrollGroupHeaderNRowCreateVM.payrollGroupRowList.ForEach(prg =>
+                {
+                    payrollGroupRows.Add(new PayrollGroupRow
+                    {
+                        IntPayrollHeaderId = payrollGroupHeader.IntPayrollGroupHeaderId,
+                        IntPayrollElementTypeId = prg.IntPayrollElementTypeId > 0 ? prg.IntPayrollElementTypeId : syntheticElementId++,
+                        StrPayrollElementName = prg.StrPayrollElementName,
+                        NumNumberOfPercent = prg.NumNumberOfPercent,
+                        IsActive = true,
+                        DteCreatedAt = DateTime.Now,
+                        IntCreatedBy = payrollGroupHeaderNRowCreateVM.IntCreatedBy,
+                        DteUpdatedAt = DateTime.Now,
+                        IntUpdatedBy = payrollGroupHeaderNRowCreateVM.IntUpdatedBy
+                    });
+                });
+
+                _context.payrollGroupHeaders.Update(payrollGroupHeader);
+                _context.payrollGroupRows.UpdateRange(existingRows);
+                await _context.payrollGroupRows.AddRangeAsync(payrollGroupRows);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         public async Task<bool> DeletePayrollGroupHeaderNRow(long headerId)
@@ -427,20 +489,20 @@ namespace HRM.Services
                 IQueryable<PayrollHeaderLanding> payrollHeaderLandings = (from header in _context.payrollGroupHeaders
                                                                           join bus in _context.businessUnits on header.IntBusinessUnitId equals bus.IntBusinessUnitId into b2
                                                                           from business in b2.DefaultIfEmpty()
-                                                                          join pa in _context.payrollPolicies on header.IntPayrollPolicyId equals pa.IntPayrollPolicyId into p2
-                                                                          from policy in p2.DefaultIfEmpty()
 
-                                                                          where header.IsActive == true && header.IntBusinessUnitId == businessUnitId
+                                                                        where header.IsActive == true && header.IntBusinessUnitId == businessUnitId
                                                                             select new PayrollHeaderLanding
                                                                             {
                                                                                 IntPayrollGroupHeaderId = header.IntPayrollGroupHeaderId,
                                                                                 StrPayrollGroupHeaderTitle = header.StrPayrollGroupHeaderTitle,
+                                                                                IntBusinessUnitId = header.IntBusinessUnitId,
+                                                                                IntPayrollPolicyId = header.IntPayrollPolicyId,
                                                                                 StrBusinessUnitName = business.StrBusinessUnitName,
-                                                                                StrPayrollPolicyName = policy.StrPayrollPolicyName,
+                                                                                StrPayrollPolicyName = "",
                                                                                 IsActive = header.IsActive,
                                                                                 StrCreatedAt = header.DteCreatedAt.ToString("dd MMM yyyy"),
                                                                                 IntCreatedBy = header.IntCreatedBy,
-                                                                                StrUpdatedAt = header.DteUpdatedAt.Value.ToString("dd MMM yyyy") ?? "",
+                                                                                StrUpdatedAt = header.DteUpdatedAt.HasValue ? header.DteUpdatedAt.Value.ToString("dd MMM yyyy") : "",
                                                                                 IntUpdatedBy = header.IntUpdatedBy
                                                                             }).OrderBy(x => x.IntPayrollGroupHeaderId).AsNoTracking().AsQueryable();
 
@@ -471,7 +533,7 @@ namespace HRM.Services
                                                                                 IsActive = row.IsActive,
                                                                                 StrCreatedAt = row.DteCreatedAt.ToString("dd MMM yyyy"),
                                                                                 IntCreatedBy = row.IntCreatedBy,
-                                                                                StrUpdatedAt = row.DteUpdatedAt.Value.ToString("dd MMM yyyy"),
+                                                                                StrUpdatedAt = row.DteUpdatedAt.HasValue ? row.DteUpdatedAt.Value.ToString("dd MMM yyyy") : "",
                                                                                 IntUpdatedBy = row.IntUpdatedBy
                                                                             }).OrderBy(x => x.IntPayrollGroupRowId).AsNoTracking().AsQueryable();
 
