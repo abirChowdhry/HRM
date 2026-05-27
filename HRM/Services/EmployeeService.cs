@@ -10,6 +10,7 @@ using System.Diagnostics;
 
 namespace HRM.Services
 {
+    // Employee service contains profile CRUD plus transfer/promotion workflows.
     public class EmployeeService : IEmployeeService
     {
         private readonly HRMContext _context;
@@ -30,6 +31,7 @@ namespace HRM.Services
                 var desig = await _context.designations.Where(x => x.IntDesignationId == employeeCreateVM.IntDesignationId).FirstOrDefaultAsync();
                 var empType = await _context.employementTypes.Where(x => x.IntEmployementId == employeeCreateVM.IntEmploymentTypeId).FirstOrDefaultAsync();
 
+                // Validate references before saving so employees cannot point to missing setup data.
                 if (data == null && codeExists == false && businessUnit != null && dept != null && desig != null && empType != null)
                 {
                     EmpBasicInfo empBasicInfo = new EmpBasicInfo

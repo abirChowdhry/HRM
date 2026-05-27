@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 
 namespace HRM.Services
 {
+    // Backend-only bonus module kept for future use; it is not exposed in the current React UI.
     public class BonusService : IBonusService
     {
         HRMContext _context;

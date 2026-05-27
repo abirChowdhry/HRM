@@ -1,12 +1,11 @@
 ﻿using HRM.DTOs;
 using HRM.Interfaces;
-using HRM.Services;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HRM.Controllers
 {
+    // Payroll setup endpoints. Some policy/element APIs are backend-only for future expansion.
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]

@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HRM.Services
 {
+    // Payroll setup service. The React UI currently uses payroll groups as salary structures.
     public class PayrollService : IPayrollService
     {
         private readonly HRMContext _context;
@@ -25,6 +26,7 @@ namespace HRM.Services
                 var businessUnit = await _context.businessUnits.Where(x => x.IntBusinessUnitId == payrollPolicyCreateVM.IntBusinessUnitId).FirstOrDefaultAsync();
                 var nameExst = await _context.payrollPolicies.Where(x => x.StrPayrollPolicyName == payrollPolicyCreateVM.StrPayrollPolicyName).FirstOrDefaultAsync();
 
+                // Policies are scoped to a business unit and must keep unique names per user workspace.
                 if (data == null && businessUnit != null && nameExst == null)
                 {
                     PayrollPolicy payrollPolicy = new PayrollPolicy

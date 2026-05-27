@@ -1,12 +1,11 @@
 ﻿using HRM.DTOs;
 using HRM.Interfaces;
-using HRM.Services;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HRM.Controllers
 {
+    // Salary endpoints cover structure assignment, monthly adjustments, and payroll generation data.
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]

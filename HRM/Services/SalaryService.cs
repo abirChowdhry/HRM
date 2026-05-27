@@ -10,6 +10,7 @@ using Microsoft.Identity.Client;
 
 namespace HRM.Services
 {
+    // Salary service handles assignment, adjustments, and generated monthly payable summaries.
     public class SalaryService : ISalaryService
     {
         private readonly HRMContext _context;
@@ -104,6 +105,7 @@ namespace HRM.Services
                 var payrollGroupExst = await _context.payrollGroupHeaders.Where(x => x.IntPayrollGroupHeaderId == salaryAssignVM.IntPayrollGroupHeaderId && x.IntBusinessUnitId == salaryAssignVM.IntBusinessUnitId).FirstOrDefaultAsync();
                 var empExst = await _context.empBasicInfos.Where(x => x.IntEmployeeBasicInfoId == salaryAssignVM.IntEmployeeId).FirstOrDefaultAsync();
 
+                // Each active employee can have one active salary assignment at a time.
                 if (data == null && businessUnit != null && payrollGroupExst != null && empExst != null)
                 {
                     SalaryAssignHeader salaryAssignHeader = new SalaryAssignHeader
@@ -128,6 +130,7 @@ namespace HRM.Services
                     List<SalaryAssignRow> salaryAssignRows = new List<SalaryAssignRow>();
                     bool check = true;
 
+                    // Split the gross salary into component rows using the selected salary structure.
                     elementRows.ForEach(er =>
                     {
                         salaryAssignRows.Add(new SalaryAssignRow

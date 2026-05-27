@@ -8,6 +8,7 @@ using System;
 
 namespace HRM.Data
 {
+    // Central EF Core context. Global filters keep each logged-in user's HR data isolated.
     public class HRMContext : DbContext
     {
         private readonly ICurrentUserService _currentUserService;
@@ -38,6 +39,7 @@ namespace HRM.Data
         {
             modelBuilder.Entity<AppUser>().HasIndex(x => x.StrEmail).IsUnique();
 
+            // Every user-owned table is filtered automatically by the current JWT user id.
             modelBuilder.Entity<BusinessUnit>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
             modelBuilder.Entity<Department>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
             modelBuilder.Entity<Designation>().HasQueryFilter(x => x.IntUserId == _currentUserService.UserId);
@@ -71,6 +73,7 @@ namespace HRM.Data
 
         private void SetOwnedUserIds()
         {
+            // New records receive ownership here, so services do not need to set IntUserId manually.
             if (_currentUserService.IsAuthenticated == false)
             {
                 return;

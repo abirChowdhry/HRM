@@ -1,14 +1,11 @@
 ﻿using HRM.DTOs;
 using HRM.Interfaces;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using System.Buffers.Text;
 
 namespace HRM.Controllers
 {
+    // Employee endpoints cover profile CRUD plus transfer/promotion history.
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]

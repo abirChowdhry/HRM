@@ -33,6 +33,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 const AUTH_KEY = "hrm-auth";
 const AUTH_SESSION_MS = 60 * 60 * 1000;
 
+// Session helpers keep localStorage in sync with the JWT lifetime.
 function getTokenExpiry(token) {
   try {
     const payload = JSON.parse(atob(token.split(".")[1] || ""));
@@ -113,9 +114,7 @@ const emptyPayrollGroup = {
   intCreatedBy: 1,
   intUpdatedBy: 1,
   payrollGroupRowList: [
-    { intPayrollGroupRowId: 0, intPayrollElementTypeId: 1, strPayrollElementName: "Basic salary", numNumberOfPercent: 60, isActive: true },
-    { intPayrollGroupRowId: 0, intPayrollElementTypeId: 2, strPayrollElementName: "House allowance", numNumberOfPercent: 25, isActive: true },
-    { intPayrollGroupRowId: 0, intPayrollElementTypeId: 3, strPayrollElementName: "Other allowance", numNumberOfPercent: 15, isActive: true }
+    { intPayrollGroupRowId: 0, intPayrollElementTypeId: 1, strPayrollElementName: "", numNumberOfPercent: "", isActive: true }
   ]
 };
 
@@ -215,6 +214,7 @@ function collectRequiredErrors(fields) {
   return fields.filter((field) => isBlank(field.value)).map((field) => field.label);
 }
 
+// Shared API helper adds JWT headers and normalizes backend errors for the UI.
 async function api(path, options = {}) {
   const token = getStoredAuth()?.token;
   const response = await fetch(`${API_BASE}${path}`, {
@@ -241,6 +241,7 @@ async function api(path, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// Loads the logged-in user's workspace data from the backend.
 function useHrmData() {
   const [data, setData] = useState(emptyData);
   const [isDemoMode, setDemoMode] = useState(true);
@@ -267,6 +268,7 @@ function useHrmData() {
 
       const businessUnitIds = businessUnits.map((unit) => unit.intBusinessUnitId);
       const selectedBusinessUnitId = businessUnitIds[0] || 0;
+      // Legacy employee, salary, and payroll endpoints are business-unit based, so the UI merges all units.
       const employeeResponses = await Promise.all(
         businessUnitIds.map((businessUnitId) =>
           api("/Employee/EmployeeLanding", {
@@ -396,6 +398,7 @@ function useHrmData() {
   };
 }
 
+// Main app state and save/delete workflows live here; screen components below render the UI.
 function App() {
   const [auth, setAuth] = useState(getStoredAuth);
   const store = useHrmData();
@@ -499,6 +502,7 @@ function App() {
   const totalSalary = salaryDetails.reduce((sum, row) => sum + Number(row.numGrossSalary || 0), 0);
   const activeCount = employees.filter((employee) => employee.isActive !== false).length;
 
+  // Employee create and update share one backend endpoint; the id decides the operation.
   async function saveEmployee(event) {
     event.preventDefault();
     const errors = collectRequiredErrors([
@@ -577,6 +581,7 @@ function App() {
   }
 
   async function saveSetup(type) {
+    // Setup lists share one CRUD pattern, so each type maps to its endpoint names.
     const value = setupDraft[type].trim();
     if (!value) {
       store.setNotice(`${titleCase(type)} name is required`);
@@ -667,6 +672,7 @@ function App() {
   }
 
   async function savePayrollGroup(event) {
+    // Salary structures are stored in the backend as payroll group headers and component rows.
     event.preventDefault();
     const totalPercent = payrollGroupForm.payrollGroupRowList.reduce((sum, row) => sum + Number(row.numNumberOfPercent || 0), 0);
     const errors = collectRequiredErrors([
@@ -798,6 +804,7 @@ function App() {
   }
 
   async function saveSalaryAssignment(event) {
+    // Assigning salary copies the selected structure into employee-specific salary rows.
     event.preventDefault();
     const employee = employees.find((item) => Number(item.intEmployeeBasicInfoId) === Number(salaryAssignForm.intEmployeeId));
     const businessUnitId = salaryAssignForm.intBusinessUnitId || employee?.intBusinessUnitId;
@@ -872,6 +879,7 @@ function App() {
   }
 
   async function saveAdjustment(event) {
+    // Adjustments can be scoped to one employee, all employees in one unit, or all units.
     event.preventDefault();
     const isEditing = Number(adjustmentForm.intSalaryAdditionAndDeductionId || 0) > 0;
     const isAllBusinessUnits = adjustmentForm.intBusinessUnitId === "all";
@@ -1001,6 +1009,7 @@ function App() {
   }
 
   async function saveTransfer(event) {
+    // Transfer/promotion keeps old values read-only and submits only the selected new values.
     event.preventDefault();
     const employee = employees.find((item) => Number(item.intEmployeeBasicInfoId) === Number(transferForm.intEmployeeId));
     const businessUnitId = transferForm.intBusinessUnitId || employee?.intBusinessUnitId || selectedBusinessUnitId;
@@ -1237,6 +1246,7 @@ function App() {
   );
 }
 
+// Login and signup share one compact authentication screen.
 function AuthView({ onAuthenticate }) {
   const [mode, setMode] = useState("login");
   const [form, setForm] = useState({ fullName: "", email: "", password: "" });
@@ -1317,6 +1327,7 @@ function AuthView({ onAuthenticate }) {
   );
 }
 
+// Dashboard gives quick entry points into the main HR workflows.
 function Dashboard({ activeCount, totalSalary, payrollGroups, employees, setActive }) {
   const recent = employees.slice(0, 4);
   return (
@@ -1376,6 +1387,7 @@ function Dashboard({ activeCount, totalSalary, payrollGroups, employees, setActi
   );
 }
 
+// Employee directory with create/update/delete and live search.
 function EmployeesView(props) {
   return (
     <section className="screen-grid two-column">
@@ -1443,6 +1455,7 @@ function EmployeesView(props) {
   );
 }
 
+// Transfer and promotion screen. Old values are display-only; new values are user-selected.
 function MovementView({ employees, departments, designations, businessUnits, transferForm, setTransferForm, saveTransfer, transferHistory, errors }) {
   function selectEmployee(employeeId) {
     const employee = employees.find((item) => Number(item.intEmployeeBasicInfoId) === Number(employeeId));
@@ -1552,6 +1565,7 @@ function MovementView({ employees, departments, designations, businessUnits, tra
   );
 }
 
+// Setup screen manages reusable master data used by employee, transfer, and salary forms.
 function SetupView({ setupDraft, setSetupDraft, setupEdit, saveSetup, editSetup, deleteSetup, clearSetupEdit, businessUnits, departments, designations, employmentTypes }) {
   const groups = [
     ["businessUnit", "Business units", Building2, businessUnits, "intBusinessUnitId", "strBusinessUnitName"],
@@ -1599,6 +1613,7 @@ function SetupView({ setupDraft, setSetupDraft, setupEdit, saveSetup, editSetup,
   );
 }
 
+// Salary module groups structure creation, employee assignment, and monthly adjustments.
 function SalaryView(props) {
   const [salaryTab, setSalaryTab] = useState("structure");
   const [structureSearch, setStructureSearch] = useState("");
@@ -1884,6 +1899,7 @@ function SalaryView(props) {
   );
 }
 
+// Payroll run screen calculates the monthly payable summary.
 function PayrollView(props) {
   const [generatePeriod, setGeneratePeriod] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() + 1 });
 

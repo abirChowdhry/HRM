@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace HRM.Controllers
 {
+    // Public authentication endpoints. All other controllers require a valid JWT.
     [Route("api/[controller]")]
     [ApiController]
     [AllowAnonymous]

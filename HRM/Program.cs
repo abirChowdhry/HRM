@@ -9,10 +9,8 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
+// Register API controllers, Swagger, and the React development origin.
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
@@ -25,7 +23,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-//Service-Inerface Dependency Injection
+// Dependency injection keeps controllers thin and places business rules in services.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -35,6 +33,7 @@ builder.Services.AddScoped<ISalaryService, SalaryService>();
 builder.Services.AddScoped<IBasicService, BasicService>();
 builder.Services.AddScoped<IBonusService, BonusService>();
 
+// JWT authentication protects every controller except AuthController.
 var jwt = builder.Configuration.GetSection("Jwt");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -53,6 +52,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// Entity Framework Core uses the local SQL Server connection from appsettings.json.
 builder.Services.AddDbContext<HRMContext>(options =>
 {
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
@@ -60,7 +60,6 @@ builder.Services.AddDbContext<HRMContext>(options =>
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -71,6 +70,7 @@ app.UseHttpsRedirection();
 
 app.UseCors("HrmClient");
 
+// Authentication must run before authorization so user-scoped data filters work.
 app.UseAuthentication();
 app.UseAuthorization();
 

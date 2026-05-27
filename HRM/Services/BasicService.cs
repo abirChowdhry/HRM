@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HRM.Services
 {
+    // CRUD rules for setup/master data used across the HRM workspace.
     public class BasicService : IBasicService
     {
         HRMContext _context;
@@ -51,6 +52,7 @@ namespace HRM.Services
             try
             {
                 var data = await _context.businessUnits.Where(x => x.IntBusinessUnitId == businessUnitId).FirstOrDefaultAsync();
+                // Do not delete setup records that are already connected to employees or payroll data.
                 var isUsed = await _context.empBasicInfos.AnyAsync(x => x.IntBusinessUnitId == businessUnitId)
                           || await _context.payrollPolicies.AnyAsync(x => x.IntBusinessUnitId == businessUnitId)
                           || await _context.payrollElements.AnyAsync(x => x.IntBusinessUnitId == businessUnitId)

@@ -1,12 +1,11 @@
 ﻿using HRM.DTOs;
 using HRM.Interfaces;
-using HRM.Services;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace HRM.Controllers
 {
+    // Bonus APIs remain in the backend even though the current React UI does not expose them.
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]

@@ -3,6 +3,7 @@ using System.Security.Claims;
 
 namespace HRM.Services
 {
+    // Reads the logged-in user id from the JWT claims for ownership checks.
     public class CurrentUserService : ICurrentUserService
     {
         private readonly IHttpContextAccessor _httpContextAccessor;

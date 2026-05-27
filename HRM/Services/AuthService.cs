@@ -11,6 +11,7 @@ using System.Text;
 
 namespace HRM.Services
 {
+    // Handles account creation, password verification, and JWT creation.
     public class AuthService : IAuthService
     {
         private const int PasswordIterations = 100000;
@@ -72,6 +73,7 @@ namespace HRM.Services
 
         private AuthResponseVM BuildResponse(AppUser user)
         {
+            // The frontend stores this response as the current login session.
             return new AuthResponseVM
             {
                 UserId = user.IntUserId,
@@ -83,6 +85,7 @@ namespace HRM.Services
 
         private string CreateToken(AppUser user)
         {
+            // User id is stored in the token so global query filters can scope data per account.
             var jwt = _configuration.GetSection("Jwt");
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt["Key"] ?? throw new InvalidOperationException("JWT key is missing.")));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -105,6 +108,7 @@ namespace HRM.Services
 
         private static void CreatePasswordHash(string password, out byte[] hash, out byte[] salt)
         {
+            // PBKDF2 with a random salt keeps raw passwords out of the database.
             salt = RandomNumberGenerator.GetBytes(16);
             hash = Rfc2898DeriveBytes.Pbkdf2(password, salt, PasswordIterations, HashAlgorithmName.SHA256, 32);
         }
